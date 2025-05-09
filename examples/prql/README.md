@@ -2,7 +2,7 @@
 
 本目录包含了 Arroyo 的 PRQL 示例，展示了如何使用 PRQL 语言编写流处理查询。
 
-## 示例列表
+## 基础示例
 
 ### 1. 基本查询 (basic_query.prql)
 
@@ -23,6 +23,47 @@
 ### 5. 变量和函数 (variables_and_functions.prql)
 
 展示如何在 PRQL 中使用变量和函数。
+
+### 6. 嵌套查询 (nested_queries.prql)
+
+展示如何在 PRQL 中使用嵌套查询和复杂数据转换。
+
+## Arroyo 特定功能
+
+### 7. Arroyo 特定功能 (arroyo_specific.prql)
+
+展示 PRQL 中 Arroyo 特定的功能概览，包括连接器、窗口函数和时间函数。
+
+### 8. Kafka 连接器 (kafka_connector.prql)
+
+展示如何在 PRQL 中使用 Kafka 源连接器和目标连接器。
+
+### 9. 文件连接器 (file_connector.prql)
+
+展示如何在 PRQL 中使用文件源连接器和目标连接器。
+
+### 10. 窗口函数 (window_functions.prql)
+
+展示如何在 PRQL 中使用窗口函数进行时间相关的聚合操作。
+
+### 11. 时间函数 (time_functions.prql)
+
+展示如何在 PRQL 中使用时间函数处理时间相关的操作。
+
+### 12. 复杂管道 (complex_pipeline.prql)
+
+展示如何在 PRQL 中构建复杂的流处理管道，结合多种功能。
+
+## 使用方法
+
+1. 确保已安装 Arroyo
+2. 使用以下命令运行示例：
+
+```bash
+arroyo run --query-type prql -f examples/prql/basic_query.prql
+```
+
+或者通过 Web UI 上传并运行示例。
 
 ## 运行示例
 

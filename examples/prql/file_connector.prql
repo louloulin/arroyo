@@ -1,0 +1,37 @@
+# 文件连接器示例
+# 本示例展示如何在 PRQL 中使用文件连接器
+
+# 从文件读取数据
+from file (
+  path = "/tmp/arroyo/input",
+  format = "csv",
+  field_delimiter = ",",
+  quote_character = "\""
+) as users
+
+# 过滤数据
+filter age > 18
+
+# 派生新列
+derive {
+  age_group = if age < 30 then "young"
+              else if age < 60 then "middle"
+              else "senior",
+  is_adult = age >= 18
+}
+
+# 选择需要的列
+select {
+  user_id,
+  name,
+  age,
+  age_group,
+  is_adult
+}
+
+# 写入文件
+into file (
+  path = "/tmp/arroyo/output",
+  format = "json",
+  write_mode = "append"
+)

@@ -1,0 +1,33 @@
+# Kafka 连接器示例
+# 本示例展示如何在 PRQL 中使用 Kafka 连接器
+
+# 从 Kafka 读取数据
+from kafka (
+  topic = "input_events",
+  bootstrap.servers = "localhost:9092",
+  format = "json"
+) as events
+
+# 设置水印
+watermark (
+  field = event_time,
+  delay = 5s
+)
+
+# 过滤数据
+filter event_type == "click"
+
+# 选择需要的列
+select {
+  user_id,
+  page_id,
+  event_time,
+  referrer
+}
+
+# 写入 Kafka
+into kafka (
+  topic = "filtered_events",
+  bootstrap.servers = "localhost:9092",
+  format = "json"
+)

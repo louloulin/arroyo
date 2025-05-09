@@ -1,0 +1,94 @@
+# arroyo_specific.prql
+# 这个示例展示了 PRQL 中 Arroyo 特定的功能
+
+# 定义 Kafka 源
+# -- KAFKA_SOURCE: topic=events, bootstrap.servers=localhost:9092, format=json
+from events
+
+# 设置水印
+# -- WATERMARK FOR event_time AS event_time - INTERVAL '5' SECOND
+
+# 派生新列
+derive {
+  # 使用处理时间
+  processing_ts = processing_time(),
+  
+  # 提取时间部分
+  event_hour = extract_hour event_time,
+  event_minute = extract_minute event_time,
+  
+  # 计算时间差
+  latency_ms = (processing_ts - event_time).milliseconds,
+  
+  # 生成会话 ID
+  session_id = f"{user_id}_{event_hour}_{s.counter % 1000}"
+}
+
+# 过滤数据
+filter event_type == "click" && latency_ms < 60000
+
+# 使用滚动窗口（5分钟）
+window tumbling 5m (
+  # 按用户 ID 分组
+  group user_id (
+    # 计算聚合值
+    aggregate {
+      # 事件数量
+      event_count = count,
+      
+      # 不同页面数量
+      distinct_pages = count_distinct page_id,
+      
+      # 平均延迟
+      avg_latency = average latency_ms,
+      
+      # 最大延迟
+      max_latency = max latency_ms
+    }
+  )
+)
+
+# 过滤聚合结果
+filter event_count > 5
+
+# 派生新列
+derive {
+  # 计算每分钟事件数
+  events_per_minute = event_count / 5,
+  
+  # 用户活跃度评分
+  activity_score = event_count * 10 + distinct_pages * 5,
+  
+  # 用户类型
+  user_type = if activity_score > 100 then "highly_active"
+              else if activity_score > 50 then "active"
+              else "casual"
+}
+
+# 排序
+sort {-activity_score}
+
+# 选择列
+select {
+  user_id,
+  window_start,
+  window_end,
+  event_count,
+  distinct_pages,
+  avg_latency,
+  max_latency,
+  events_per_minute,
+  activity_score,
+  user_type
+}
+
+# 输出到 Kafka
+# -- KAFKA_SINK: topic=user_activity, bootstrap.servers=localhost:9092, format=json
+
+# 说明：
+# 1. 使用 Kafka 源和接收器
+# 2. 设置水印以处理延迟数据
+# 3. 使用 Arroyo 特定的时间函数（processing_time, extract_hour, extract_minute）
+# 4. 使用滚动窗口进行时间聚合
+# 5. 计算各种聚合指标
+# 6. 派生新列进行进一步分析

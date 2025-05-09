@@ -1,0 +1,55 @@
+# 时间函数示例
+# 本示例展示如何在 PRQL 中使用时间函数
+
+# 从 Kafka 读取数据
+from kafka (
+  topic = "events",
+  bootstrap.servers = "localhost:9092",
+  format = "json"
+) as events
+
+# 设置水印
+watermark (
+  field = event_time,
+  delay = 5s
+)
+
+# 派生时间相关列
+derive {
+  # 处理时间
+  processing_ts = processing_time(),
+  
+  # 提取时间部分
+  event_hour = extract_hour(event_time),
+  event_minute = extract_minute(event_time),
+  event_day = extract_day(event_time),
+  event_month = extract_month(event_time),
+  event_year = extract_year(event_time),
+  
+  # 计算时间差
+  latency_ms = (processing_ts - event_time).milliseconds,
+  
+  # 时间分类
+  time_of_day = if event_hour < 6 then "night"
+                else if event_hour < 12 then "morning"
+                else if event_hour < 18 then "afternoon"
+                else "evening",
+                
+  # 是否为工作日
+  is_weekday = day_of_week(event_time) <= 5
+}
+
+# 按小时和事件类型分组
+group {event_hour, event_type} (
+  aggregate {
+    event_count = count,
+    avg_latency = average latency_ms
+  }
+)
+
+# 写入 Kafka
+into kafka (
+  topic = "hourly_stats",
+  bootstrap.servers = "localhost:9092",
+  format = "json"
+)

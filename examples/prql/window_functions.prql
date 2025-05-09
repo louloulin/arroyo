@@ -1,0 +1,52 @@
+# 窗口函数示例
+# 本示例展示如何在 PRQL 中使用窗口函数
+
+# 从 Kafka 读取数据
+from kafka (
+  topic = "sensor_data",
+  bootstrap.servers = "localhost:9092",
+  format = "json"
+) as sensors
+
+# 设置水印
+watermark (
+  field = reading_time,
+  delay = 10s
+)
+
+# 滚动窗口（5分钟）
+window tumbling (
+  size = 5m,
+  time_field = reading_time
+) (
+  # 按设备ID分组
+  group device_id (
+    # 计算聚合值
+    aggregate {
+      # 读数数量
+      reading_count = count,
+      
+      # 平均温度
+      avg_temperature = average temperature,
+      
+      # 最大温度
+      max_temperature = max temperature,
+      
+      # 最小温度
+      min_temperature = min temperature,
+      
+      # 温度范围
+      temp_range = max temperature - min temperature
+    }
+  )
+)
+
+# 过滤异常数据
+filter avg_temperature > 30 || temp_range > 10
+
+# 写入 Kafka
+into kafka (
+  topic = "temperature_alerts",
+  bootstrap.servers = "localhost:9092",
+  format = "json"
+)

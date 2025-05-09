@@ -26,11 +26,17 @@
 - 支持 Arroyo 特定的窗口函数（TUMBLE、HOP、SESSION）
 - 支持 Arroyo 特定的时间函数和水印语法
 - 支持 Arroyo 特定的连接器语法（Kafka、文件等）
+- 支持原生语法扩展，不再依赖注释方式实现特定功能
 
 ### 4. 文档和示例
 
-- 编写了 PRQL 使用文档
-- 创建了多个 PRQL 示例查询，展示不同的功能
+- 编写了 PRQL 使用文档（`doc/arroyo-prql-guide.md`）
+- 创建了多个 PRQL 示例查询，展示不同的功能：
+  - Kafka 连接器示例（`examples/prql/kafka_connector.prql`）
+  - 文件连接器示例（`examples/prql/file_connector.prql`）
+  - 窗口函数示例（`examples/prql/window_functions.prql`）
+  - 时间函数示例（`examples/prql/time_functions.prql`）
+  - 复杂管道示例（`examples/prql/complex_pipeline.prql`）
 - 更新了 Arroyo 文档以包含 PRQL 支持
 
 ## 待完成工作
@@ -87,5 +93,22 @@
 Arroyo 对 PRQL 的支持已经取得了显著成果，核心功能和高级特性已经全面实现并可用。通过 PRQL 支持，Arroyo 为用户提供了一种更现代、更易用的查询语言选择，特别适合编写复杂的流处理查询。
 
 我们不仅实现了基本的 PRQL 语法支持，还添加了对 Arroyo 特定功能的支持，包括窗口函数、时间函数和连接器语法。这使得用户可以充分利用 PRQL 的简洁语法和强大抽象能力，同时享受 Arroyo 流处理系统的全部功能。
+
+特别值得一提的是，我们实现了原生语法扩展，不再依赖注释方式实现特定功能。这种方法更加正式、更易于使用，同时保持了 PRQL 简洁、易读的特点。例如，用户现在可以使用以下语法定义 Kafka 连接器：
+
+```prql
+from kafka (
+  topic = "events",
+  bootstrap.servers = "localhost:9092",
+  format = "json"
+) as events
+```
+
+而不是使用注释方式：
+
+```prql
+# -- KAFKA_SOURCE: topic=events, bootstrap.servers=localhost:9092, format=json
+from events
+```
 
 随着错误处理、Web UI 集成和性能优化工作的完成，PRQL 支持将变得更加完善和强大，为 Arroyo 用户提供更好的开发体验。

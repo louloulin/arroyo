@@ -1,0 +1,112 @@
+# 复杂管道示例
+# 本示例展示如何在 PRQL 中构建复杂的流处理管道
+
+# 定义变量
+let suspicious_amount = 1000
+let max_transactions_per_hour = 5
+
+# 从 Kafka 读取交易数据
+from kafka (
+  topic = "transactions",
+  bootstrap.servers = "localhost:9092",
+  format = "json"
+) as transactions
+
+# 设置水印
+watermark (
+  field = transaction_time,
+  delay = 1m
+)
+
+# 过滤无效交易
+filter amount > 0 && status == "completed"
+
+# 派生新列
+derive {
+  # 提取时间部分
+  tx_hour = extract_hour(transaction_time),
+  tx_date = date_trunc("day", transaction_time),
+  
+  # 计算交易金额分类
+  amount_category = if amount < 100 then "small"
+                    else if amount < 1000 then "medium"
+                    else "large",
+                    
+  # 是否为可疑金额
+  is_suspicious_amount = amount > suspicious_amount,
+  
+  # 是否为国际交易
+  is_international = merchant_country != customer_country
+}
+
+# 使用1小时滚动窗口
+window tumbling (
+  size = 1h,
+  time_field = transaction_time
+) (
+  # 按卡号分组
+  group card_number (
+    aggregate {
+      # 交易数量
+      tx_count = count,
+      
+      # 交易总额
+      total_amount = sum amount,
+      
+      # 最大交易额
+      max_amount = max amount,
+      
+      # 不同商家数量
+      merchant_count = count_distinct merchant_id,
+      
+      # 不同国家/地区数量
+      country_count = count_distinct merchant_country,
+      
+      # 可疑交易数量
+      suspicious_count = count_if is_suspicious_amount,
+      
+      # 国际交易数量
+      international_count = count_if is_international
+    }
+  )
+)
+
+# 派生风险评分
+derive {
+  # 基于多个因素计算风险评分
+  risk_score = 
+    (if tx_count > max_transactions_per_hour then 50 else 0) +
+    (if max_amount > suspicious_amount then 30 else 0) +
+    (if country_count > 1 then 70 else 0) +
+    (if merchant_count > 3 then 20 else 0) +
+    (if international_count > 0 then 40 else 0),
+    
+  # 确定风险级别
+  risk_level = if risk_score > 100 then "high"
+               else if risk_score > 50 then "medium"
+               else "low"
+}
+
+# 过滤中高风险交易
+filter risk_level != "low"
+
+# 选择输出列
+select {
+  card_number,
+  window_start,
+  window_end,
+  tx_count,
+  total_amount,
+  max_amount,
+  merchant_count,
+  country_count,
+  risk_score,
+  risk_level
+}
+
+# 输出到 Kafka
+into kafka (
+  topic = "fraud_alerts",
+  bootstrap.servers = "localhost:9092",
+  format = "json"
+)
