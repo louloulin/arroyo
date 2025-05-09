@@ -7,7 +7,6 @@ mod converter;
 mod error;
 
 use anyhow::Result;
-use prqlc::sql::Dialect;
 pub use error::PrqlError;
 
 /// Converts a PRQL query to an Arroyo-compatible SQL query
@@ -29,7 +28,7 @@ pub fn prql_to_sql(prql_query: &str) -> Result<String, PrqlError> {
         prql_query,
         &prqlc::Options {
             format: false,
-            target: prqlc::Target::Sql(Some(Dialect::PostgreSql)),
+            target: prqlc::Target::Sql(Some(prqlc::sql::Dialect::Postgres)),
             signature_comment: false,
             ..Default::default()
         },

@@ -1,0 +1,169 @@
+# nested_queries.prql
+# 这个示例展示了如何在 PRQL 中使用嵌套查询
+
+# 创建一个临时表，包含订单数据
+let orders = (
+  from s=impulse
+  
+  # 派生新列
+  derive {
+    # 订单 ID
+    order_id = counter,
+    
+    # 用户 ID（0-99）
+    user_id = counter % 100,
+    
+    # 随机金额（50-500）
+    amount = 50 + counter % 450,
+    
+    # 订单日期
+    order_date = s.timestamp,
+    
+    # 订单状态
+    status = if counter % 5 == 0 then "completed"
+             else if counter % 5 == 1 then "pending"
+             else if counter % 5 == 2 then "shipped"
+             else if counter % 5 == 3 then "cancelled"
+             else "refunded"
+  }
+  
+  # 过滤数据
+  filter counter < 1000
+)
+
+# 创建一个临时表，包含用户数据
+let users = (
+  from s=impulse
+  
+  # 派生新列
+  derive {
+    # 用户 ID（0-99）
+    user_id = counter % 100,
+    
+    # 用户名
+    username = f"user_{counter % 100}",
+    
+    # 用户类型
+    user_type = if counter % 3 == 0 then "premium" else "standard",
+    
+    # 注册日期
+    register_date = s.timestamp - interval 30 day
+  }
+  
+  # 过滤数据
+  filter counter < 100
+  
+  # 选择列
+  select {user_id, username, user_type, register_date}
+)
+
+# 创建一个嵌套查询，计算每个用户的订单统计信息
+let user_order_stats = (
+  from orders
+  
+  # 按用户分组
+  group user_id (
+    aggregate {
+      # 订单数量
+      order_count = count,
+      
+      # 总金额
+      total_amount = sum amount,
+      
+      # 平均金额
+      avg_amount = average amount,
+      
+      # 最大金额
+      max_amount = max amount,
+      
+      # 最小金额
+      min_amount = min amount,
+      
+      # 已完成订单数量
+      completed_orders = count_if status == "completed",
+      
+      # 已取消订单数量
+      cancelled_orders = count_if status == "cancelled"
+    }
+  )
+  
+  # 派生新列
+  derive {
+    # 取消率
+    cancellation_rate = cancelled_orders / order_count,
+    
+    # 完成率
+    completion_rate = completed_orders / order_count,
+    
+    # 用户等级
+    user_tier = if total_amount > 10000 then "gold"
+                else if total_amount > 5000 then "silver"
+                else "bronze"
+  }
+)
+
+# 创建另一个嵌套查询，计算每个用户类型的统计信息
+let user_type_stats = (
+  from users
+  
+  # 按用户类型分组
+  group user_type (
+    aggregate {
+      # 用户数量
+      user_count = count
+    }
+  )
+)
+
+# 主查询：连接用户、用户订单统计和用户类型统计
+from users
+join user_order_stats (==user_id)
+
+# 派生新列
+derive {
+  # 用户活跃度评分
+  activity_score = order_count * 10 + total_amount / 100,
+  
+  # 用户价值评分
+  value_score = total_amount / (s.timestamp - register_date).days,
+  
+  # 用户状态
+  status = if activity_score > 100 then "active"
+           else if activity_score > 50 then "moderate"
+           else "inactive"
+}
+
+# 过滤数据
+filter user_type == "premium" || total_amount > 5000
+
+# 排序
+sort {-total_amount}
+
+# 选择列
+select {
+  user_id,
+  username,
+  user_type,
+  register_date,
+  order_count,
+  total_amount,
+  avg_amount,
+  cancellation_rate,
+  completion_rate,
+  user_tier,
+  activity_score,
+  value_score,
+  status
+}
+
+# 限制结果数量
+take 20
+
+# 说明：
+# 1. 创建临时表 orders 和 users
+# 2. 创建嵌套查询 user_order_stats，计算每个用户的订单统计信息
+# 3. 创建嵌套查询 user_type_stats，计算每个用户类型的统计信息
+# 4. 主查询连接用户和用户订单统计
+# 5. 派生新列，计算用户活跃度评分和价值评分
+# 6. 过滤、排序和选择列
+# 7. 限制结果数量
