@@ -6,6 +6,7 @@ import createClient from 'openapi-fetch';
 
 import { LocalUdf } from '../udf_state';
 import { useRef } from 'react';
+import { ExtendedValidateQueryPost } from '../lib/api-types-extended';
 
 type schemas = components['schemas'];
 
@@ -125,8 +126,8 @@ const operatorErrorsKey = (pipelineId?: string, jobId?: string) => {
   };
 };
 
-const queryValidationKey = (query?: string, localUdfs?: LocalUdf[]) => {
-  return query != undefined ? { key: 'PipelineGraph', query, localUdfs } : null;
+const queryValidationKey = (query?: string, localUdfs?: LocalUdf[], queryType?: string) => {
+  return query != undefined ? { key: 'PipelineGraph', query, localUdfs, queryType } : null;
 };
 
 const udfValidationKey = (definition: string, language: 'python' | 'rust') => {
@@ -374,7 +375,7 @@ export const useCheckpointDetails = (pipelineId?: string, jobId?: string, epoch?
 };
 
 const queryValidationFetcher = () => {
-  return async (params: { key: string; query?: string; localUdfs?: LocalUdf[] }) => {
+  return async (params: { key: string; query?: string; localUdfs?: LocalUdf[]; queryType?: string }) => {
     let udfs: PipelineLocalUdf[] = [];
     if (params.localUdfs) {
       udfs = params.localUdfs.map(udf => {
@@ -382,19 +383,21 @@ const queryValidationFetcher = () => {
       });
     }
 
+    // 使用ExtendedValidateQueryPost类型
     const { data, error } = await post('/v1/pipelines/validate_query', {
       body: {
         query: params.query ?? '',
         udfs: udfs,
-      },
+        query_type: params.queryType
+      } as ExtendedValidateQueryPost,
     });
     return processResponse(data, error);
   };
 };
 
-export const useQueryValidation = (query?: string, localUdfs?: LocalUdf[]) => {
+export const useQueryValidation = (query?: string, localUdfs?: LocalUdf[], queryType?: string) => {
   const { data, error, isLoading } = useSWR<schemas['QueryValidationResult']>(
-    queryValidationKey(query, localUdfs),
+    queryValidationKey(query, localUdfs, queryType),
     queryValidationFetcher(),
     { revalidateOnFocus: false, revalidateIfStale: false, shouldRetryOnError: false }
   );

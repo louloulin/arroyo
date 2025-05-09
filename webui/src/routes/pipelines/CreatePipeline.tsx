@@ -92,9 +92,11 @@ export function CreatePipeline() {
   const hasOperatorErrors = operatorErrorsPages?.length && operatorErrorsPages[0].data.length > 0;
   const { localUdfs, setLocalUdfs, openTab } = useContext(LocalUdfsContext);
   const [localUdfsToCheck, setLocalUdfsToCheck] = useState<LocalUdf[]>([]);
+  const [queryType, setQueryType] = useState<QueryType>(QueryType.SQL);
   const { queryValidation, queryValidationError, queryValidationLoading } = useQueryValidation(
     queryInputToCheck,
-    localUdfsToCheck
+    localUdfsToCheck,
+    queryType
   );
   const [previewError, setPreviewError] = useState<string | undefined>(undefined);
   const hasUdfValidationErrors = localUdfs.some(u => u.errors?.length);
@@ -102,7 +104,6 @@ export function CreatePipeline() {
   const [udfValidationApiError, setUdfValidationApiError] = useState<any | undefined>(undefined);
   const [validationInProgress, setValidationInProgress] = useState<boolean>(false);
   const [startingPreview, setStartingPreview] = useState<boolean>(false);
-  const [queryType, setQueryType] = useState<QueryType>(QueryType.SQL);
 
   const { tourActive, tourStep, setTourStep, disableTour } = useContext(TourContext);
 
@@ -257,6 +258,7 @@ export function CreatePipeline() {
       body: {
         query: queryInput,
         udfs,
+        query_type: queryType
       } as ExtendedValidateQueryPost,
     });
 
@@ -309,6 +311,7 @@ export function CreatePipeline() {
         query: queryInput,
         udfs,
         enableSinks: previewOptions.enableSinks,
+        query_type: queryType
       } as ExtendedPreviewPost,
     });
 
@@ -347,6 +350,7 @@ export function CreatePipeline() {
         parallelism: options.parallelism!,
         query: queryInput,
         udfs,
+        query_type: queryType
       } as ExtendedPipelinePost,
     });
 

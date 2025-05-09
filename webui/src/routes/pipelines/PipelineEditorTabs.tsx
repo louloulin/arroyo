@@ -163,7 +163,6 @@ const PipelineEditorTabs: React.FC<PipelineEditorTabsProps> = ({
             queryType={queryType}
             setQueryType={setQueryType}
             query={queryInput}
-            setQuery={updateQuery}
           />
         </Flex>
         <CodeEditor

@@ -241,14 +241,21 @@ pub fn is_prql_query(query: &str) -> bool {
         return true;
     }
 
-    // Check for pipe operator usage
-    if query.contains("|") && !query.contains("SELECT") && !query.contains("FROM") {
+    // Check for pipe operator usage - more strict check
+    if query.contains("|>") {
         return true;
     }
 
-    // Check for PRQL-style function calls (no parentheses)
-    if query.contains("filter ") || query.contains("derive ") || query.contains("group ") {
+    // Check for PRQL-style function calls with pipe operator
+    if (query.contains("filter ") || query.contains("derive ") || query.contains("group "))
+       && !query.contains("SELECT") && !query.contains("FROM") {
         return true;
+    }
+
+    // If query contains SQL keywords, it's likely SQL
+    if query.contains("SELECT") || query.contains("FROM") || query.contains("WHERE") ||
+       query.contains("GROUP BY") || query.contains("ORDER BY") || query.contains("HAVING") {
+        return false;
     }
 
     false
