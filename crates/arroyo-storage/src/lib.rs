@@ -74,11 +74,11 @@ const S3_URL: &str = r"^[sS]3[aA]?://(?P<bucket>[a-z0-9\-\.]+)(/(?P<key>.+))?$";
 const S3_ENDPOINT_URL: &str = r"^[sS]3[aA]?::(?<protocol>https?)://(?P<endpoint>[^:/]+):(?<port>\d+)/(?P<bucket>[a-z0-9\-\.]+)(/(?P<key>.+))?$";
 
 // file:///my/path/directory
-const FILE_URI: &str = r"^file://(?P<path>.*)$";
+const FILE_URI: &str = r"^file:///?(?P<path>.*)$";
 // file:/my/path/directory
-const FILE_URL: &str = r"^file:(?P<path>.*)$";
+const FILE_URL: &str = r"^file:/?(?P<path>.*)$";
 // /my/path/directory
-const FILE_PATH: &str = r"^/(?P<path>.*)$";
+const FILE_PATH: &str = r"^/?(?P<path>.*)$";
 
 // https://BUCKET_NAME.storage.googleapis.com/OBJECT_NAME
 const GCS_VIRTUAL: &str =
@@ -263,11 +263,18 @@ impl BackendConfig {
             .expect("path regex must contain a path group")
             .as_str();
 
-        let mut path = if !path.starts_with('/') {
+        // Ensure path is absolute
+        let mut path = if path.is_empty() || !path.starts_with('/') {
             PathBuf::from(format!("/{}", path))
         } else {
             PathBuf::from(path)
         };
+
+        // Create directory if it doesn't exist
+        if let Err(e) = std::fs::create_dir_all(&path) {
+            tracing::warn!("Failed to create directory {}: {:?}", path.display(), e);
+            // Don't return error here, let the storage provider handle it
+        }
 
         let key = if with_key {
             let key = path
@@ -279,8 +286,12 @@ impl BackendConfig {
             None
         };
 
+        let path_str = path.to_str().ok_or_else(|| {
+            StorageError::PathError(format!("Path contains invalid UTF-8: {:?}", path))
+        })?;
+
         Ok(BackendConfig::Local(LocalConfig {
-            path: path.to_str().unwrap().to_string(),
+            path: path_str.to_string(),
             key,
         }))
     }
@@ -455,6 +466,7 @@ impl StorageProvider {
     }
 
     async fn construct_local(config: LocalConfig) -> Result<Self, StorageError> {
+        // Ensure path exists
         tokio::fs::create_dir_all(&config.path).await.map_err(|e| {
             StorageError::PathError(format!(
                 "failed to create directory {}: {:?}",
@@ -462,11 +474,23 @@ impl StorageProvider {
             ))
         })?;
 
+        // Create object store
         let object_store = Arc::new(
-            LocalFileSystem::new_with_prefix(&config.path).map_err(Into::<StorageError>::into)?,
+            LocalFileSystem::new_with_prefix(&config.path).map_err(|e| {
+                StorageError::PathError(format!(
+                    "failed to create local file system for {}: {:?}",
+                    config.path, e
+                ))
+            })?,
         );
 
-        let canonical_url = format!("file://{}", config.path);
+        // Ensure canonical URL has the correct format
+        let canonical_url = if config.path.starts_with('/') {
+            format!("file://{}", config.path)
+        } else {
+            format!("file:///{}", config.path)
+        };
+
         Ok(Self {
             config: BackendConfig::Local(config),
             object_store,
