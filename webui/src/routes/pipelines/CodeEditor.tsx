@@ -1,6 +1,7 @@
 import Editor from '@monaco-editor/react';
-import React, { Dispatch } from 'react';
+import React, { Dispatch, useEffect } from 'react';
 import { Flex } from '@chakra-ui/react';
+import { setupMonacoLanguages } from '../../lib/monaco-setup';
 
 export function CodeEditor({
   code,
@@ -13,6 +14,11 @@ export function CodeEditor({
   readOnly?: boolean;
   language?: string;
 }) {
+  // Setup Monaco languages when component mounts
+  useEffect(() => {
+    setupMonacoLanguages();
+  }, []);
+
   const onChange = (value: string | undefined) => {
     if (setCode != null) {
       setCode(value || '');

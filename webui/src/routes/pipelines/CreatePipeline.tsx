@@ -101,6 +101,7 @@ export function CreatePipeline() {
   const [udfValidationApiError, setUdfValidationApiError] = useState<any | undefined>(undefined);
   const [validationInProgress, setValidationInProgress] = useState<boolean>(false);
   const [startingPreview, setStartingPreview] = useState<boolean>(false);
+  const [queryType, setQueryType] = useState<'sql' | 'prql'>('sql');
 
   const { tourActive, tourStep, setTourStep, disableTour } = useContext(TourContext);
 
@@ -255,6 +256,7 @@ export function CreatePipeline() {
       body: {
         query: queryInput,
         udfs,
+        query_type: queryType,
       },
     });
 
@@ -307,6 +309,7 @@ export function CreatePipeline() {
         query: queryInput,
         udfs,
         enableSinks: previewOptions.enableSinks,
+        query_type: queryType,
       },
     });
 
@@ -345,6 +348,7 @@ export function CreatePipeline() {
         parallelism: options.parallelism!,
         query: queryInput,
         udfs,
+        query_type: queryType,
       },
     });
 
@@ -664,6 +668,8 @@ export function CreatePipeline() {
                   previewOptions={previewOptions}
                   setPreviewOptions={setPreviewOptions}
                   job={job}
+                  queryType={queryType}
+                  setQueryType={setQueryType}
                 />
               </Panel>
               <PanelResizeHandle style={{ height: '4px', backgroundColor: '#111' }} />

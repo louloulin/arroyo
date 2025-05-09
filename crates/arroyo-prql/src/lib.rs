@@ -8,8 +8,17 @@ mod error;
 mod parser;
 
 use anyhow::Result;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use once_cell::sync::Lazy;
+
 pub use error::PrqlError;
 pub use parser::{ConnectorConfig, WindowConfig, WatermarkConfig};
+
+// Global cache for PRQL to SQL conversions
+static PRQL_CACHE: Lazy<Arc<Mutex<HashMap<String, String>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(HashMap::new()))
+});
 
 /// Converts a PRQL query to an Arroyo-compatible SQL query
 ///
@@ -25,6 +34,11 @@ pub use parser::{ConnectorConfig, WindowConfig, WatermarkConfig};
 ///
 /// Returns an error if the PRQL query is invalid or cannot be converted to SQL
 pub fn prql_to_sql(prql_query: &str) -> Result<String, PrqlError> {
+    // Check cache first
+    if let Some(cached_sql) = get_from_cache(prql_query) {
+        return Ok(cached_sql);
+    }
+
     // Parse extended syntax
     let (modified_query, connectors, windows, watermarks) = parser::parse_extended_syntax(prql_query)?;
 
@@ -52,7 +66,29 @@ pub fn prql_to_sql(prql_query: &str) -> Result<String, PrqlError> {
     // Apply watermark configurations
     let sql = apply_watermark_configs(sql, &watermarks)?;
 
+    // Add to cache
+    add_to_cache(prql_query, &sql);
+
     Ok(sql)
+}
+
+/// Get a cached SQL query for a PRQL query
+fn get_from_cache(prql_query: &str) -> Option<String> {
+    let cache = PRQL_CACHE.lock().ok()?;
+    cache.get(prql_query).cloned()
+}
+
+/// Add a SQL query to the cache for a PRQL query
+fn add_to_cache(prql_query: &str, sql: &str) {
+    if let Ok(mut cache) = PRQL_CACHE.lock() {
+        // Limit cache size to 1000 entries
+        if cache.len() >= 1000 {
+            // Simple strategy: clear the cache when it gets too big
+            // A more sophisticated approach would use LRU
+            cache.clear();
+        }
+        cache.insert(prql_query.to_string(), sql.to_string());
+    }
 }
 
 /// Applies connector configurations to the SQL

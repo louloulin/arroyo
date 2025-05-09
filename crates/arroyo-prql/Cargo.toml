@@ -19,6 +19,7 @@ arroyo-types = { path = "../arroyo-types" }
 arroyo-rpc = { path = "../arroyo-rpc" }
 arroyo-datastream = { path = "../arroyo-datastream" }
 arroyo-planner = { path = "../arroyo-planner" }
+once_cell = "1.21.3"
 
 [dev-dependencies]
 pretty_assertions = "1.3"

@@ -1,4 +1,4 @@
-import React, { Dispatch, useContext } from 'react';
+import React, { Dispatch, useContext, useState, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -37,6 +37,8 @@ import { FiCheckCircle, FiPlay } from 'react-icons/fi';
 import { IoRocketOutline } from 'react-icons/io5';
 import { PreviewOptions } from './CreatePipeline';
 import { Job } from '../../lib/data_fetching';
+import { QueryTypeSelector, QueryType as QueryLanguage } from './QueryTypeSelector';
+import { isPrqlQuery } from '../../lib/monaco-setup';
 
 export interface PipelineEditorTabsProps {
   queryInput: string;
@@ -50,6 +52,8 @@ export interface PipelineEditorTabsProps {
   previewOptions: PreviewOptions;
   setPreviewOptions: Dispatch<PreviewOptions>;
   job?: Job;
+  queryType?: QueryLanguage;
+  setQueryType?: (type: QueryLanguage) => void;
 }
 
 const PipelineEditorTabs: React.FC<PipelineEditorTabsProps> = ({
@@ -64,6 +68,8 @@ const PipelineEditorTabs: React.FC<PipelineEditorTabsProps> = ({
   previewOptions,
   setPreviewOptions,
   job,
+  queryType: propQueryType,
+  setQueryType: propSetQueryType,
 }) => {
   const { openedUdfs, isGlobal, editorTab, handleEditorTabChange } = useContext(LocalUdfsContext);
   const {
@@ -72,6 +78,21 @@ const PipelineEditorTabs: React.FC<PipelineEditorTabsProps> = ({
     onClose: onExampleQueriesClose,
   } = useDisclosure();
   const { tourStep, setTourStep, disableTour } = useContext(TourContext);
+
+  // Internal state for query type if not provided as props
+  const [internalQueryType, setInternalQueryType] = useState<QueryLanguage>('sql');
+
+  // Use either the prop or internal state
+  const queryType = propQueryType || internalQueryType;
+  const setQueryType = propSetQueryType || setInternalQueryType;
+
+  // Auto-detect query type on initial load
+  useEffect(() => {
+    if (queryInput) {
+      const detectedType = isPrqlQuery(queryInput) ? 'prql' : 'sql';
+      setQueryType(detectedType);
+    }
+  }, []);
 
   const exampleQueries = (
     <ExampleQueries
@@ -135,8 +156,20 @@ const PipelineEditorTabs: React.FC<PipelineEditorTabsProps> = ({
 
   const tabPanels = (
     <TabPanels flex={1}>
-      <TabPanel height={'100%'} p={0} display={'flex'}>
-        <CodeEditor code={queryInput} setCode={updateQuery} />
+      <TabPanel height={'100%'} p={0} display={'flex'} flexDirection={'column'}>
+        <Flex justifyContent="flex-end" p={2} bg="gray.800">
+          <QueryTypeSelector
+            queryType={queryType}
+            setQueryType={setQueryType}
+            query={queryInput}
+            setQuery={updateQuery}
+          />
+        </Flex>
+        <CodeEditor
+          code={queryInput}
+          setCode={updateQuery}
+          language={queryType}
+        />
       </TabPanel>
       {openedUdfs.map(udf => {
         let globalBanner = <></>;

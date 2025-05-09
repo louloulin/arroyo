@@ -796,6 +796,7 @@ dependencies = [
  "arroyo-planner",
  "arroyo-rpc",
  "arroyo-types",
+ "once_cell",
  "pretty_assertions",
  "prqlc",
  "regex",

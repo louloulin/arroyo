@@ -28,6 +28,7 @@ use crate::pipelines::{
     create_pipeline, create_preview_pipeline, delete_pipeline, get_pipeline, get_pipeline_jobs,
     get_pipelines, patch_pipeline, restart_pipeline, validate_query,
 };
+use crate::prql::convert_prql;
 use crate::rest_utils::not_found;
 use crate::udfs::{create_udf, delete_udf, get_udfs, validate_udf};
 use crate::ApiDoc;
@@ -170,6 +171,7 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .route("/pipelines/:id", get(get_pipeline))
         .route("/pipelines/:id/restart", post(restart_pipeline))
         .route("/pipelines/:id", delete(delete_pipeline))
+        .route("/prql/convert", post(convert_prql))
         .nest("/pipelines/:id/jobs", jobs_routes)
         .fallback(api_fallback);
 

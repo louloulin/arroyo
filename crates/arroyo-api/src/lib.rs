@@ -15,6 +15,8 @@ use tower_http::compression::{CompressionLayer, DefaultPredicate, Predicate};
 use tracing::{error, info};
 use utoipa::OpenApi;
 
+use crate::prql::{PrqlConvertRequest, PrqlConvertResponse};
+
 use crate::connection_profiles::{
     __path_create_connection_profile, __path_delete_connection_profile,
     __path_get_connection_profile_autocomplete, __path_get_connection_profiles,
@@ -36,6 +38,7 @@ use crate::pipelines::{
     __path_get_pipeline, __path_get_pipeline_jobs, __path_patch_pipeline, __path_restart_pipeline,
     __path_validate_query,
 };
+
 use crate::rest::__path_ping;
 use crate::rest_utils::{service_unavailable, ErrorResp};
 use crate::udfs::{__path_create_udf, __path_delete_udf, __path_get_udfs, __path_validate_udf};
@@ -53,6 +56,7 @@ mod connectors;
 mod jobs;
 mod metrics;
 mod pipelines;
+mod prql;
 pub mod rest;
 mod rest_utils;
 pub mod sql;
@@ -245,7 +249,8 @@ impl IntoResponse for HttpError {
         get_checkpoint_details,
         create_udf,
         get_udfs,
-        delete_udf
+        delete_udf,
+        convert_prql
     ),
     components(schemas(
         ErrorResp,
@@ -317,6 +322,8 @@ impl IntoResponse for HttpError {
         GlobalUdf,
         GlobalUdfCollection,
         BadData,
+        PrqlConvertRequest,
+        PrqlConvertResponse,
     )),
     tags(
         (name = "ping", description = "Ping endpoint"),
