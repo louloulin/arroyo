@@ -73,13 +73,13 @@ pub fn prql_to_sql(prql_query: &str) -> Result<String, PrqlError> {
 }
 
 /// Get a cached SQL query for a PRQL query
-fn get_from_cache(prql_query: &str) -> Option<String> {
+pub(crate) fn get_from_cache(prql_query: &str) -> Option<String> {
     let cache = PRQL_CACHE.lock().ok()?;
     cache.get(prql_query).cloned()
 }
 
 /// Add a SQL query to the cache for a PRQL query
-fn add_to_cache(prql_query: &str, sql: &str) {
+pub(crate) fn add_to_cache(prql_query: &str, sql: &str) {
     if let Ok(mut cache) = PRQL_CACHE.lock() {
         // Limit cache size to 1000 entries
         if cache.len() >= 1000 {
@@ -258,3 +258,5 @@ pub fn is_prql_query(query: &str) -> bool {
 mod test_basic;
 #[cfg(test)]
 mod test_extended;
+#[cfg(test)]
+mod cache_test;
