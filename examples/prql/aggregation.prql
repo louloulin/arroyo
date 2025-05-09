@@ -1,0 +1,60 @@
+# aggregation.prql
+# 这个示例展示了如何使用 PRQL 进行聚合操作
+
+# 使用 impulse() 源生成测试数据
+from s=impulse
+
+# 派生新列
+derive {
+  # 生成随机值
+  value = counter * (1 + s.timestamp % 10 / 10),
+  
+  # 生成分组键
+  group_key = counter % 5,
+  
+  # 生成类别
+  category = if counter % 3 == 0 then "A"
+             else if counter % 3 == 1 then "B"
+             else "C"
+}
+
+# 过滤数据
+filter counter < 100
+
+# 按 group_key 和 category 分组，并计算聚合值
+group {group_key, category} (
+  aggregate {
+    # 计数
+    count = count,
+    
+    # 求和
+    sum_value = sum value,
+    
+    # 平均值
+    avg_value = average value,
+    
+    # 最小值
+    min_value = min value,
+    
+    # 最大值
+    max_value = max value,
+    
+    # 标准差
+    stddev_value = stddev value
+  }
+)
+
+# 过滤聚合结果
+filter count > 3
+
+# 排序
+sort {group_key, -sum_value}
+
+# 说明：
+# 1. from impulse - 使用 impulse() 源生成测试数据
+# 2. derive - 创建新列
+# 3. filter - 过滤行
+# 4. group - 按 group_key 和 category 分组
+# 5. aggregate - 计算聚合值（计数、求和、平均值、最小值、最大值、标准差）
+# 6. filter - 过滤聚合结果
+# 7. sort - 排序

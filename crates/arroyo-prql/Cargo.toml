@@ -1,0 +1,23 @@
+[package]
+name = "arroyo-prql"
+version = "0.1.0"
+edition = "2021"
+description = "PRQL support for Arroyo"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+prqlc = "0.9.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Arroyo dependencies
+arroyo-types = { path = "../arroyo-types" }
+arroyo-rpc = { path = "../arroyo-rpc" }
+arroyo-datastream = { path = "../arroyo-datastream" }
+arroyo-planner = { path = "../arroyo-planner" }
+
+[dev-dependencies]
+pretty_assertions = "1.3"

@@ -1,0 +1,64 @@
+# window_operations.prql
+# 这个示例展示了如何使用 PRQL 进行窗口操作
+
+# 创建一个临时表，包含传感器数据
+let sensor_data = (
+  from s=impulse
+  
+  # 派生新列
+  derive {
+    # 生成传感器 ID（0-9）
+    sensor_id = counter % 10,
+    
+    # 生成随机温度（15-40度）
+    temperature = 15 + s.timestamp % 100 / 4,
+    
+    # 生成随机湿度（30-90%）
+    humidity = 30 + s.timestamp % 100 / 1.5,
+    
+    # 使用事件时间
+    event_time = s.timestamp
+  }
+  
+  # 过滤数据
+  filter counter < 1000
+  
+  # 设置水印
+  set_watermark event_time 5s
+)
+
+# 使用滚动窗口（10分钟）
+from sensor_data
+window tumbling 10m (
+  # 按传感器 ID 分组
+  group sensor_id (
+    # 计算聚合值
+    aggregate {
+      # 读数数量
+      reading_count = count,
+      
+      # 平均温度
+      avg_temperature = average temperature,
+      
+      # 最低温度
+      min_temperature = min temperature,
+      
+      # 最高温度
+      max_temperature = max temperature,
+      
+      # 平均湿度
+      avg_humidity = average humidity
+    }
+  )
+)
+
+# 排序
+sort {window_start, sensor_id}
+
+# 说明：
+# 1. 创建临时表 sensor_data，包含传感器数据
+# 2. 使用 set_watermark 设置水印，允许最多 5 秒的延迟
+# 3. 使用 window tumbling 创建 10 分钟的滚动窗口
+# 4. 按传感器 ID 分组
+# 5. 计算每个传感器在每个窗口内的聚合值
+# 6. 排序结果

@@ -65,7 +65,42 @@ async fn compile_sql(
     auth_data: &AuthData,
     validate_only: bool,
     db: &DatabaseSource,
+    query_type: Option<arroyo_rpc::api_types::pipelines::QueryType>,
 ) -> Result<CompiledSql, ErrorResp> {
+    // Check if the query is a PRQL query and convert it to SQL if needed
+    let query = match query_type {
+        // If query_type is explicitly set to PRQL, always treat as PRQL
+        Some(arroyo_rpc::api_types::pipelines::QueryType::Prql) => {
+            match arroyo_prql::prql_to_sql(&query) {
+                Ok(sql) => {
+                    tracing::info!("Converted PRQL query to SQL: {}", sql);
+                    sql
+                }
+                Err(e) => {
+                    return Err(bad_request(format!("Failed to convert PRQL query: {}", e)));
+                }
+            }
+        }
+        // If query_type is explicitly set to SQL, use as-is
+        Some(arroyo_rpc::api_types::pipelines::QueryType::Sql) => query,
+        // If query_type is not specified, auto-detect
+        None => {
+            if arroyo_prql::is_prql_query(&query) {
+                match arroyo_prql::prql_to_sql(&query) {
+                    Ok(sql) => {
+                        tracing::info!("Auto-detected and converted PRQL query to SQL: {}", sql);
+                        sql
+                    }
+                    Err(e) => {
+                        return Err(bad_request(format!("Failed to convert PRQL query: {}", e)));
+                    }
+                }
+            } else {
+                query
+            }
+        }
+    };
+
     let mut schema_provider = ArroyoSchemaProvider::new();
 
     let global_udfs = fetch_get_udfs(&db.client().await?, &auth_data.organization_id)
@@ -301,6 +336,7 @@ pub(crate) async fn create_pipeline_int(
     enable_sinks: bool,
     auth: AuthData,
     db: &DatabaseSource,
+    query_type: Option<arroyo_rpc::api_types::pipelines::QueryType>,
 ) -> Result<String, ErrorResp> {
     if parallelism > auth.org_metadata.max_parallelism as u64 {
         return Err(bad_request(format!(
@@ -313,7 +349,7 @@ pub(crate) async fn create_pipeline_int(
     let pub_id = generate_id(IdTypes::Pipeline);
 
     let mut compiled =
-        compile_sql(query.clone(), &udfs, parallelism as usize, &auth, false, db).await?;
+        compile_sql(query.clone(), &udfs, parallelism as usize, &auth, false, db, query_type).await?;
 
     if compiled.program.graph.node_count() > auth.org_metadata.max_operators as usize {
         return Err(bad_request(
@@ -547,6 +583,7 @@ pub async fn validate_query(
         &auth_data,
         true,
         &state.database,
+        validate_query_post.query_type,
     )
     .await
     {
@@ -599,6 +636,7 @@ pub async fn create_pipeline(
         true,
         auth_data.clone(),
         &state.database,
+        pipeline_post.query_type,
     )
     .await?;
 
@@ -638,6 +676,7 @@ pub async fn create_preview_pipeline(
         req.enable_sinks,
         auth_data.clone(),
         &state.database,
+        req.query_type,
     )
     .await?;
 

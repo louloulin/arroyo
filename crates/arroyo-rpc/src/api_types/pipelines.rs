@@ -8,6 +8,14 @@ use utoipa::ToSchema;
 pub struct ValidateQueryPost {
     pub query: String,
     pub udfs: Option<Vec<Udf>>, // needed for query validation but are not themselves validated
+    pub query_type: Option<QueryType>, // optional field to explicitly specify the query type
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum QueryType {
+    Sql,
+    Prql,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
@@ -25,6 +33,7 @@ pub struct PipelinePost {
     pub udfs: Option<Vec<Udf>>,
     pub parallelism: u64,
     pub checkpoint_interval_micros: Option<u64>,
+    pub query_type: Option<QueryType>, // optional field to explicitly specify the query type
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
@@ -34,6 +43,7 @@ pub struct PreviewPost {
     pub udfs: Option<Vec<Udf>>,
     #[serde(default)]
     pub enable_sinks: bool,
+    pub query_type: Option<QueryType>, // optional field to explicitly specify the query type
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]

@@ -10,6 +10,7 @@ default = []
 [dependencies]
 arroyo-types = { path = "../arroyo-types" }
 arroyo-planner = { path = "../arroyo-planner" }
+arroyo-prql = { path = "../arroyo-prql" }
 arroyo-rpc = { path = "../arroyo-rpc" }
 arroyo-server-common = { path = "../arroyo-server-common" }
 arroyo-operator = { path = "../arroyo-operator" }

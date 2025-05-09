@@ -1,0 +1,45 @@
+# basic_query.prql
+# 这个示例展示了基本的 PRQL 查询语法
+
+# 使用 impulse() 源生成测试数据
+from s=impulse
+
+# 派生新列
+derive {
+  # 基本数学运算
+  value = counter / 10.0,
+  
+  # 条件表达式
+  category = if counter % 3 == 0 then "A"
+             else if counter % 3 == 1 then "B"
+             else "C",
+             
+  # 字符串操作
+  id_string = f"ID-{counter}"
+}
+
+# 过滤数据
+filter counter < 100
+
+# 选择和重命名列
+select {
+  id = counter,
+  value,
+  category,
+  id_string,
+  event_time = timestamp
+}
+
+# 排序
+sort {category, -value}
+
+# 限制结果数量
+take 20
+
+# 说明：
+# 1. from impulse - 使用 impulse() 源生成测试数据
+# 2. derive - 创建新列
+# 3. filter - 过滤行
+# 4. select - 选择和重命名列
+# 5. sort - 排序（按 category 升序，value 降序）
+# 6. take - 限制结果数量为 20 行

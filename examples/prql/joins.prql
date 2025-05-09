@@ -1,0 +1,96 @@
+# joins.prql
+# 这个示例展示了如何使用 PRQL 连接多个数据流
+
+# 创建订单数据流
+let orders = (
+  from s=impulse
+  
+  # 派生新列
+  derive {
+    # 订单 ID
+    order_id = counter,
+    
+    # 用户 ID（0-99）
+    user_id = counter % 100,
+    
+    # 随机金额（50-500）
+    amount = 50 + counter % 450,
+    
+    # 事件时间
+    event_time = s.timestamp
+  }
+  
+  # 过滤数据
+  filter counter < 500
+  
+  # 设置水印
+  set_watermark event_time 5s
+)
+
+# 创建用户数据流
+let users = (
+  from s=impulse
+  
+  # 派生新列
+  derive {
+    # 用户 ID（0-99）
+    user_id = counter % 100,
+    
+    # 用户名
+    username = f"user_{counter % 100}",
+    
+    # 用户类型
+    user_type = if counter % 3 == 0 then "premium" else "standard",
+    
+    # 事件时间
+    event_time = s.timestamp
+  }
+  
+  # 过滤数据
+  filter counter < 100
+  
+  # 设置水印
+  set_watermark event_time 5s
+  
+  # 选择列
+  select {user_id, username, user_type}
+)
+
+# 连接订单和用户数据
+from orders
+join users (==user_id)
+
+# 派生新列
+derive {
+  # 根据用户类型计算折扣
+  discount = if user_type == "premium" then 0.1 else 0.0,
+  
+  # 计算折扣后金额
+  discounted_amount = amount * (1 - discount)
+}
+
+# 选择列
+select {
+  order_id,
+  user_id,
+  username,
+  user_type,
+  amount,
+  discount,
+  discounted_amount,
+  event_time
+}
+
+# 排序
+sort {-event_time}
+
+# 限制结果数量
+take 20
+
+# 说明：
+# 1. 创建订单数据流和用户数据流
+# 2. 使用 join 连接两个数据流（按 user_id 连接）
+# 3. 派生新列，计算折扣和折扣后金额
+# 4. 选择需要的列
+# 5. 按事件时间降序排序
+# 6. 限制结果数量为 20 行

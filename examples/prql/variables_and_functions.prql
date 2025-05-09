@@ -1,0 +1,104 @@
+# variables_and_functions.prql
+# 这个示例展示了如何在 PRQL 中使用变量和函数
+
+# 定义变量
+let min_value = 10
+let max_value = 90
+let tax_rate = 0.1
+let premium_discount = 0.15
+let standard_discount = 0.05
+
+# 定义函数
+# 计算税额
+let calculate_tax = amount -> amount * tax_rate
+
+# 计算折扣
+let calculate_discount = (amount, user_type) ->
+  if user_type == "premium" then
+    amount * premium_discount
+  else
+    amount * standard_discount
+
+# 计算总价
+let calculate_total = (amount, user_type) ->
+  let tax = calculate_tax amount
+  let discount = calculate_discount (amount, user_type)
+  amount + tax - discount
+
+# 检查值是否在范围内
+let is_in_range = value -> value >= min_value && value <= max_value
+
+# 格式化金额
+let format_amount = amount -> f"${amount:.2f}"
+
+# 使用 impulse() 源生成测试数据
+from s=impulse
+
+# 派生新列
+derive {
+  # 订单 ID
+  order_id = counter,
+  
+  # 用户 ID
+  user_id = counter % 100,
+  
+  # 用户类型
+  user_type = if counter % 3 == 0 then "premium" else "standard",
+  
+  # 金额
+  amount = 50 + counter % 450,
+  
+  # 事件时间
+  event_time = s.timestamp
+}
+
+# 过滤数据
+filter counter < 100
+
+# 使用函数派生新列
+derive {
+  # 计算税额
+  tax = calculate_tax amount,
+  
+  # 计算折扣
+  discount = calculate_discount (amount, user_type),
+  
+  # 计算总价
+  total = calculate_total (amount, user_type),
+  
+  # 检查金额是否在范围内
+  in_range = is_in_range amount,
+  
+  # 格式化金额
+  formatted_amount = format_amount amount,
+  formatted_total = format_amount total
+}
+
+# 过滤数据
+filter in_range
+
+# 选择列
+select {
+  order_id,
+  user_id,
+  user_type,
+  amount,
+  tax,
+  discount,
+  total,
+  formatted_amount,
+  formatted_total
+}
+
+# 排序
+sort {user_type, -amount}
+
+# 说明：
+# 1. 定义变量（min_value, max_value, tax_rate, premium_discount, standard_discount）
+# 2. 定义函数（calculate_tax, calculate_discount, calculate_total, is_in_range, format_amount）
+# 3. 使用 impulse() 源生成测试数据
+# 4. 派生基本列
+# 5. 使用函数派生新列
+# 6. 过滤数据
+# 7. 选择列
+# 8. 排序
