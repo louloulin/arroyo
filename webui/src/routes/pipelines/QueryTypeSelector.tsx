@@ -18,8 +18,7 @@ import { PiFileSqlDuotone } from 'react-icons/pi';
 import { FiCode } from 'react-icons/fi';
 import { MdSwapHoriz } from 'react-icons/md';
 import { convertPrqlToSql, convertSqlToPrql, isPrqlQuery } from '../../lib/monaco-setup';
-
-export type QueryType = 'sql' | 'prql';
+import { QueryType } from '../../lib/api-types-extended';
 
 interface QueryTypeSelectorProps {
   queryType: QueryType;
@@ -44,7 +43,7 @@ export function QueryTypeSelector({
 
     setConverting(true);
     try {
-      if (newType === 'prql') {
+      if (newType === QueryType.PRQL) {
         // Convert SQL to PRQL
         const prql = await convertSqlToPrql(query);
         setQuery(prql);
@@ -63,7 +62,7 @@ export function QueryTypeSelector({
   };
 
   const autoDetectType = async () => {
-    const detectedType = isPrqlQuery(query) ? 'prql' : 'sql';
+    const detectedType = isPrqlQuery(query) ? QueryType.PRQL : QueryType.SQL;
     if (detectedType !== queryType) {
       setQueryType(detectedType);
     }
@@ -71,14 +70,14 @@ export function QueryTypeSelector({
 
   return (
     <Flex alignItems="center">
-      <Tooltip label={queryType === 'sql' ? 'SQL Query' : 'PRQL Query'}>
+      <Tooltip label={queryType === QueryType.SQL ? 'SQL Query' : 'PRQL Query'}>
         <Button
           size="xs"
           variant="ghost"
-          leftIcon={queryType === 'sql' ? <Icon as={PiFileSqlDuotone} /> : <Icon as={FiCode} />}
+          leftIcon={queryType === QueryType.SQL ? <Icon as={PiFileSqlDuotone} /> : <Icon as={FiCode} />}
           onClick={autoDetectType}
         >
-          {queryType === 'sql' ? 'SQL' : 'PRQL'}
+          {queryType === QueryType.SQL ? 'SQL' : 'PRQL'}
         </Button>
       </Tooltip>
 
@@ -97,17 +96,17 @@ export function QueryTypeSelector({
             <Text mb={2}>Switch query language:</Text>
             <ButtonGroup size="sm" isAttached variant="outline">
               <Button
-                isDisabled={converting || queryType === 'sql'}
-                onClick={() => handleTypeChange('sql')}
-                colorScheme={queryType === 'sql' ? 'blue' : 'gray'}
+                isDisabled={converting || queryType === QueryType.SQL}
+                onClick={() => handleTypeChange(QueryType.SQL)}
+                colorScheme={queryType === QueryType.SQL ? 'blue' : 'gray'}
                 leftIcon={<Icon as={PiFileSqlDuotone} />}
               >
                 SQL
               </Button>
               <Button
-                isDisabled={converting || queryType === 'prql'}
-                onClick={() => handleTypeChange('prql')}
-                colorScheme={queryType === 'prql' ? 'blue' : 'gray'}
+                isDisabled={converting || queryType === QueryType.PRQL}
+                onClick={() => handleTypeChange(QueryType.PRQL)}
+                colorScheme={queryType === QueryType.PRQL ? 'blue' : 'gray'}
                 leftIcon={<Icon as={FiCode} />}
               >
                 PRQL

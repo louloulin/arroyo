@@ -15,7 +15,7 @@ use tower_http::compression::{CompressionLayer, DefaultPredicate, Predicate};
 use tracing::{error, info};
 use utoipa::OpenApi;
 
-use crate::prql::{PrqlConvertRequest, PrqlConvertResponse};
+use crate::prql::{convert_prql, __path_convert_prql, PrqlConvertRequest, PrqlConvertResponse};
 
 use crate::connection_profiles::{
     __path_create_connection_profile, __path_delete_connection_profile,
@@ -324,6 +324,7 @@ impl IntoResponse for HttpError {
         BadData,
         PrqlConvertRequest,
         PrqlConvertResponse,
+        QueryType,
     )),
     tags(
         (name = "ping", description = "Ping endpoint"),

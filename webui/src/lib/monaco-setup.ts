@@ -1,5 +1,6 @@
 import * as monaco from 'monaco-editor';
 import { prqlLanguageConfiguration, prqlLanguageDefinition } from './prql-language';
+import { languages } from 'monaco-editor';
 
 let initialized = false;
 
@@ -10,8 +11,8 @@ export function setupMonacoLanguages() {
 
   // Register PRQL language
   monaco.languages.register({ id: 'prql' });
-  monaco.languages.setMonarchTokensProvider('prql', prqlLanguageDefinition);
-  monaco.languages.setLanguageConfiguration('prql', prqlLanguageConfiguration);
+  monaco.languages.setMonarchTokensProvider('prql', prqlLanguageDefinition as any);
+  monaco.languages.setLanguageConfiguration('prql', prqlLanguageConfiguration as any);
 
   initialized = true;
 }
@@ -54,7 +55,7 @@ export async function convertPrqlToSql(prql: string): Promise<string> {
 // Detect if a query is PRQL
 export function isPrqlQuery(query: string): boolean {
   const query_trimmed = query.trim();
-  
+
   // Check for common PRQL starting keywords
   if (query_trimmed.startsWith('from') || query_trimmed.startsWith('let') || query_trimmed.startsWith('prql')) {
     return true;

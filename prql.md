@@ -1,4 +1,6 @@
-# PRQL 支持开发计划
+# PRQL 支持开发计划 (已完成 ✅)
+
+> **注意**：此开发计划中的所有功能已全部实现完成。PRQL 支持现已集成到 Arroyo 中，用户可以在 Web UI 中使用 PRQL 编写查询。详细文档请参见 [doc/prql-support.md](doc/prql-support.md)。
 
 ## 1. 概述
 

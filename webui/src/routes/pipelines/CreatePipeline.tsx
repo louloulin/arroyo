@@ -22,6 +22,7 @@ import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PipelineGraphViewer } from './PipelineGraph';
 import { SqlOptions } from '../../lib/types';
+import { QueryType, ExtendedValidateQueryPost, ExtendedPipelinePost, ExtendedPreviewPost } from '../../lib/api-types-extended';
 import {
   JobLogMessage,
   PipelineLocalUdf,
@@ -101,7 +102,7 @@ export function CreatePipeline() {
   const [udfValidationApiError, setUdfValidationApiError] = useState<any | undefined>(undefined);
   const [validationInProgress, setValidationInProgress] = useState<boolean>(false);
   const [startingPreview, setStartingPreview] = useState<boolean>(false);
-  const [queryType, setQueryType] = useState<'sql' | 'prql'>('sql');
+  const [queryType, setQueryType] = useState<QueryType>(QueryType.SQL);
 
   const { tourActive, tourStep, setTourStep, disableTour } = useContext(TourContext);
 
@@ -256,8 +257,7 @@ export function CreatePipeline() {
       body: {
         query: queryInput,
         udfs,
-        query_type: queryType,
-      },
+      } as ExtendedValidateQueryPost,
     });
 
     if (queryValidation?.graph) {
@@ -309,8 +309,7 @@ export function CreatePipeline() {
         query: queryInput,
         udfs,
         enableSinks: previewOptions.enableSinks,
-        query_type: queryType,
-      },
+      } as ExtendedPreviewPost,
     });
 
     setStartingPreview(false);
@@ -348,8 +347,7 @@ export function CreatePipeline() {
         parallelism: options.parallelism!,
         query: queryInput,
         udfs,
-        query_type: queryType,
-      },
+      } as ExtendedPipelinePost,
     });
 
     if (data) {

@@ -37,7 +37,8 @@ import { FiCheckCircle, FiPlay } from 'react-icons/fi';
 import { IoRocketOutline } from 'react-icons/io5';
 import { PreviewOptions } from './CreatePipeline';
 import { Job } from '../../lib/data_fetching';
-import { QueryTypeSelector, QueryType as QueryLanguage } from './QueryTypeSelector';
+import { QueryTypeSelector } from './QueryTypeSelector';
+import { QueryType } from '../../lib/api-types-extended';
 import { isPrqlQuery } from '../../lib/monaco-setup';
 
 export interface PipelineEditorTabsProps {
@@ -52,8 +53,8 @@ export interface PipelineEditorTabsProps {
   previewOptions: PreviewOptions;
   setPreviewOptions: Dispatch<PreviewOptions>;
   job?: Job;
-  queryType?: QueryLanguage;
-  setQueryType?: (type: QueryLanguage) => void;
+  queryType?: QueryType;
+  setQueryType?: (type: QueryType) => void;
 }
 
 const PipelineEditorTabs: React.FC<PipelineEditorTabsProps> = ({
@@ -80,7 +81,7 @@ const PipelineEditorTabs: React.FC<PipelineEditorTabsProps> = ({
   const { tourStep, setTourStep, disableTour } = useContext(TourContext);
 
   // Internal state for query type if not provided as props
-  const [internalQueryType, setInternalQueryType] = useState<QueryLanguage>('sql');
+  const [internalQueryType, setInternalQueryType] = useState<QueryType>(QueryType.SQL);
 
   // Use either the prop or internal state
   const queryType = propQueryType || internalQueryType;
@@ -89,7 +90,7 @@ const PipelineEditorTabs: React.FC<PipelineEditorTabsProps> = ({
   // Auto-detect query type on initial load
   useEffect(() => {
     if (queryInput) {
-      const detectedType = isPrqlQuery(queryInput) ? 'prql' : 'sql';
+      const detectedType = isPrqlQuery(queryInput) ? QueryType.PRQL : QueryType.SQL;
       setQueryType(detectedType);
     }
   }, []);

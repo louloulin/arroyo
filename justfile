@@ -55,7 +55,7 @@ start-node: build
 # 编译Web UI
 build-webui:
     @echo "编译Web UI..."
-    cd webui && npm install && npm run build
+    cd webui && pnpm install && pnpm run build
 
 # 停止PostgreSQL容器
 stop-postgres:

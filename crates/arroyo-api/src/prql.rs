@@ -1,20 +1,18 @@
 use axum::{extract::State, Json};
 use axum_extra::extract::WithRejection;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-use crate::{
-    auth::authenticate,
-    error::{bad_request, ApiError, ErrorResp},
-    AppState,
-};
+use crate::rest_utils::{bad_request, ApiError, ErrorResp};
+use crate::rest::AppState;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PrqlConvertRequest {
     pub query: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PrqlConvertResponse {
     pub sql: String,
@@ -37,7 +35,7 @@ pub struct PrqlConvertResponse {
     )
 )]
 pub async fn convert_prql(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     WithRejection(Json(request), _): WithRejection<Json<PrqlConvertRequest>, ApiError>,
 ) -> Result<Json<PrqlConvertResponse>, ErrorResp> {
     // Convert PRQL to SQL
