@@ -16,11 +16,13 @@ use tracing::warn;
 
 pub mod blackhole;
 pub mod confluent;
+pub mod elasticsearch;
 pub mod filesystem;
 pub mod fluvio;
 pub mod impulse;
 pub mod kafka;
 pub mod kinesis;
+pub mod mongodb;
 pub mod mqtt;
 pub mod nats;
 pub mod nexmark;
@@ -38,12 +40,14 @@ pub fn connectors() -> HashMap<&'static str, Box<dyn ErasedConnector>> {
     let connectors: Vec<Box<dyn ErasedConnector>> = vec![
         Box::new(blackhole::BlackholeConnector {}),
         Box::new(confluent::ConfluentConnector {}),
+        Box::new(elasticsearch::ElasticsearchConnector {}),
         Box::new(filesystem::delta::DeltaLakeConnector {}),
         Box::new(filesystem::FileSystemConnector {}),
         Box::new(fluvio::FluvioConnector {}),
         Box::new(impulse::ImpulseConnector {}),
         Box::new(kafka::KafkaConnector {}),
         Box::new(kinesis::KinesisConnector {}),
+        Box::new(mongodb::MongoDBConnector {}),
         Box::new(mqtt::MqttConnector {}),
         Box::new(nats::NatsConnector {}),
         Box::new(nexmark::NexmarkConnector {}),

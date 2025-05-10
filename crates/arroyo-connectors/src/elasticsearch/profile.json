@@ -1,0 +1,47 @@
+{
+    "type": "object",
+    "title": "ElasticsearchConfig",
+    "properties": {
+        "hosts": {
+            "type": "array",
+            "title": "Hosts",
+            "description": "Elasticsearch host URLs",
+            "items": {
+                "type": "string",
+                "format": "var-str"
+            },
+            "examples": [["http://localhost:9200"]]
+        },
+        "username": {
+            "type": "string",
+            "title": "Username",
+            "description": "Elasticsearch username for authentication",
+            "format": "var-str"
+        },
+        "password": {
+            "type": "string",
+            "title": "Password",
+            "description": "Elasticsearch password for authentication",
+            "format": "var-str"
+        },
+        "cloud_id": {
+            "type": "string",
+            "title": "Cloud ID",
+            "description": "Elasticsearch Cloud ID for Elastic Cloud deployments",
+            "format": "var-str"
+        },
+        "api_key": {
+            "type": "string",
+            "title": "API Key",
+            "description": "Elasticsearch API key for authentication",
+            "format": "var-str"
+        }
+    },
+    "sensitive": [
+        "password",
+        "api_key"
+    ],
+    "required": [
+        "hosts"
+    ]
+}

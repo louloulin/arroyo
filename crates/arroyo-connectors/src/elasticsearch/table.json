@@ -1,0 +1,74 @@
+{
+    "type": "object",
+    "title": "ElasticsearchTable",
+    "properties": {
+        "index": {
+            "type": "string",
+            "title": "Index",
+            "description": "Elasticsearch index name"
+        },
+        "connectorType": {
+            "type": "object",
+            "title": "Connector Type",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "title": "Source",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "title": "Query",
+                            "description": "Optional Elasticsearch query in JSON format"
+                        },
+                        "batchSize": {
+                            "type": "integer",
+                            "title": "Batch Size",
+                            "description": "Number of documents to fetch in each batch",
+                            "default": 100,
+                            "minimum": 1
+                        },
+                        "pollInterval": {
+                            "type": "integer",
+                            "title": "Poll Interval",
+                            "description": "Interval in milliseconds between polls for new data",
+                            "default": 1000,
+                            "minimum": 100
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "title": "Sink",
+                    "properties": {
+                        "writeMode": {
+                            "type": "string",
+                            "title": "Write Mode",
+                            "description": "How to write data to Elasticsearch",
+                            "enum": ["Index", "Create", "Update", "Upsert"],
+                            "default": "Index"
+                        },
+                        "batchSize": {
+                            "type": "integer",
+                            "title": "Batch Size",
+                            "description": "Number of documents to write in each batch",
+                            "default": 100,
+                            "minimum": 1
+                        },
+                        "idField": {
+                            "type": "string",
+                            "title": "ID Field",
+                            "description": "Field to use as document ID for updates/upserts"
+                        }
+                    },
+                    "additionalProperties": false,
+                    "required": ["writeMode"]
+                }
+            ]
+        }
+    },
+    "required": [
+        "index",
+        "connectorType"
+    ]
+}

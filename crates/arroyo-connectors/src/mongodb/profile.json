@@ -1,0 +1,31 @@
+{
+    "type": "object",
+    "title": "MongoDBConfig",
+    "properties": {
+        "connection_string": {
+            "type": "string",
+            "title": "Connection String",
+            "description": "MongoDB connection string",
+            "examples": ["mongodb://localhost:27017"],
+            "format": "var-str"
+        },
+        "username": {
+            "type": "string",
+            "title": "Username",
+            "description": "MongoDB username (if not included in connection string)",
+            "format": "var-str"
+        },
+        "password": {
+            "type": "string",
+            "title": "Password",
+            "description": "MongoDB password (if not included in connection string)",
+            "format": "var-str"
+        }
+    },
+    "sensitive": [
+        "password"
+    ],
+    "required": [
+        "connection_string"
+    ]
+}
