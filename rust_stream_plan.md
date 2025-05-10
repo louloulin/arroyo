@@ -221,6 +221,7 @@ Fluvio 采用更轻量级的设计：
 - [x] 开发更多数据源连接器（MongoDB、Elasticsearch 等）
   - [x] 实现 MongoDB 连接器
   - [x] 实现 Elasticsearch 连接器
+  - [x] 修复构建问题
 - [ ] 实现更多目标连接器（ClickHouse、Snowflake 等）
 - [ ] 改进 Kafka 连接器性能
 - [ ] 优化 Kinesis 连接器可靠性

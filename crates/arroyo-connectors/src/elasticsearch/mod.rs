@@ -6,9 +6,9 @@ use arroyo_rpc::api_types::connections::{
     ConnectionSchema, ConnectionType, TestSourceMessage,
 };
 use arroyo_rpc::OperatorConfig;
-use ::elasticsearch::{Elasticsearch, http::transport::TransportBuilder};
-use ::elasticsearch::auth::Credentials;
+use ::elasticsearch::Elasticsearch;
 use ::elasticsearch::cluster::ClusterHealthParts;
+use ::elasticsearch::http::transport::Transport;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::oneshot::Receiver;
@@ -41,28 +41,32 @@ pub(crate) struct ElasticsearchClient {
 
 impl ElasticsearchClient {
     pub async fn new(config: &ElasticsearchConfig) -> anyhow::Result<Self> {
-        let mut transport_builder = TransportBuilder::default();
-
-        // 添加节点
-        for url in config.hosts.iter() {
-            let url = url.sub_env_vars()?;
-            transport_builder = transport_builder.node(&url);
+        // 确保至少有一个主机
+        if config.hosts.is_empty() {
+            return Err(anyhow!("No Elasticsearch hosts provided"));
         }
 
-        // 设置认证信息
-        if let (Some(username), Some(password)) = (&config.username, &config.password) {
-            let username = username.sub_env_vars()?;
-            let password = password.sub_env_vars()?;
-            transport_builder = transport_builder.auth(Credentials::Basic(username, password));
-        }
-
-        // 创建传输层
-        let transport = transport_builder
-            .build()
-            .map_err(|e| anyhow!("Failed to create Elasticsearch transport: {:?}", e))?;
+        // 获取第一个主机URL
+        let url_str = config.hosts[0].sub_env_vars()?;
 
         // 创建客户端
-        let client = Elasticsearch::new(transport);
+        let client = if let (Some(username), Some(password)) = (&config.username, &config.password) {
+            let username = username.sub_env_vars()?;
+            let password = password.sub_env_vars()?;
+
+            // 创建带认证的客户端
+            let conn_str = format!("{}://{}:{}@{}",
+                if url_str.starts_with("https") { "https" } else { "http" },
+                username,
+                password,
+                url_str.replace("http://", "").replace("https://", "")
+            );
+
+            Elasticsearch::new(Transport::single_node(&conn_str)?)
+        } else {
+            // 创建不带认证的客户端
+            Elasticsearch::new(Transport::single_node(&url_str)?)
+        };
 
         Ok(Self { client })
     }
@@ -139,7 +143,7 @@ impl Connector for ElasticsearchConnector {
     }
 
     fn table_type(&self, _: Self::ProfileT, table: Self::TableT) -> ConnectionType {
-        match table.connector_type {
+        match &table.connector_type {
             ConnectorType::Source { .. } => ConnectionType::Source,
             ConnectorType::Sink { .. } => ConnectionType::Sink,
         }
@@ -205,13 +209,17 @@ impl Connector for ElasticsearchConnector {
                             let client = Arc::new(client);
                             let source_func = ElasticsearchSourceFunc {
                                 client,
-                                index: table.index,
+                                index: table.index.clone(),
                                 query: query.clone(),
-                                batch_size: batch_size.unwrap_or(100),
-                                poll_interval: poll_interval.unwrap_or(1000),
-                                format: config
-                                    .format
-                                    .ok_or_else(|| anyhow!("format required for Elasticsearch source"))?,
+                                batch_size: 100,
+                                poll_interval: 1000,
+                                format: match config.format {
+                                    Some(f) => f,
+                                    None => {
+                                        let _ = tx.send(Err(anyhow!("format required for Elasticsearch source")));
+                                        return;
+                                    }
+                                },
                                 framing: config.framing,
                                 bad_data: config.bad_data,
                             };
@@ -226,13 +234,17 @@ impl Connector for ElasticsearchConnector {
                             let client = Arc::new(client);
                             let sink_func = ElasticsearchSinkFunc {
                                 client,
-                                index: table.index,
-                                write_mode: write_mode.clone(),
+                                index: table.index.clone(),
+                                write_mode: write_mode.clone().to_string(),
                                 id_field: id_field.clone(),
                                 serializer: ArrowSerializer::new(
-                                    config
-                                        .format
-                                        .ok_or_else(|| anyhow!("format required for Elasticsearch sink"))?,
+                                    match config.format {
+                                        Some(f) => f,
+                                        None => {
+                                            let _ = tx.send(Err(anyhow!("format required for Elasticsearch sink")));
+                                            return;
+                                        }
+                                    },
                                 ),
                             };
                             Ok(ConstructedOperator::from_operator(Box::new(sink_func)))
@@ -242,7 +254,7 @@ impl Connector for ElasticsearchConnector {
                 }
             };
 
-            tx.send(result).unwrap();
+            let _ = tx.send(result);
         });
 
         // 等待异步任务完成

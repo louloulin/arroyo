@@ -48,12 +48,16 @@ impl ArrowOperator for MongoDBSinkFunc {
 
         // 序列化数据
         let serialized_data = self.serializer.serialize(&batch);
-        if serialized_data.is_empty() {
+
+        // 将 Box<dyn Iterator<Item = Vec<u8>> + Send> 转换为 Vec<Vec<u8>>
+        let serialized_vec: Vec<Vec<u8>> = serialized_data.collect();
+
+        if serialized_vec.is_empty() {
             return;
         }
 
         // 将序列化的数据转换为MongoDB文档
-        let documents: Vec<Document> = serialized_data
+        let documents: Vec<Document> = serialized_vec
             .into_iter()
             .filter_map(|data| {
                 match serde_json::from_slice::<serde_json::Value>(&data) {

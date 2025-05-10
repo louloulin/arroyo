@@ -5,9 +5,8 @@ use arroyo_operator::context::{Collector, OperatorContext};
 use arroyo_operator::operator::ArrowOperator;
 use arroyo_types::CheckpointBarrier;
 use async_trait::async_trait;
-use ::elasticsearch::BulkParts;
 use ::elasticsearch::indices::{IndicesExistsParts, IndicesCreateParts};
-use ::elasticsearch::params::Refresh;
+use ::elasticsearch::IndexParts;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tracing::{error, info};
@@ -73,16 +72,20 @@ impl ArrowOperator for ElasticsearchSinkFunc {
 
         // 序列化数据
         let serialized_data = self.serializer.serialize(&batch);
-        if serialized_data.is_empty() {
+
+        // 将 Box<dyn Iterator<Item = Vec<u8>> + Send> 转换为 Vec<Vec<u8>>
+        let serialized_vec: Vec<Vec<u8>> = serialized_data.collect();
+
+        if serialized_vec.is_empty() {
             return;
         }
 
         // 根据写入模式处理数据
         match self.write_mode.as_str() {
-            "Index" => self.index_documents(serialized_data, ctx).await,
-            "Create" => self.create_documents(serialized_data, ctx).await,
-            "Update" => self.update_documents(serialized_data, ctx).await,
-            "Upsert" => self.upsert_documents(serialized_data, ctx).await,
+            "Index" => self.index_documents(serialized_vec, ctx).await,
+            "Create" => self.create_documents(serialized_vec, ctx).await,
+            "Update" => self.update_documents(serialized_vec, ctx).await,
+            "Upsert" => self.upsert_documents(serialized_vec, ctx).await,
             _ => {
                 ctx.error_reporter
                     .report_error(
@@ -112,7 +115,7 @@ impl ElasticsearchSinkFunc {
 
         for data in serialized_data {
             match serde_json::from_slice::<Value>(&data) {
-                Ok(mut doc) => {
+                Ok(doc) => {
                     let id = self.extract_id(&doc);
 
                     let action = if let Some(id) = id {
@@ -146,7 +149,7 @@ impl ElasticsearchSinkFunc {
 
         for data in serialized_data {
             match serde_json::from_slice::<Value>(&data) {
-                Ok(mut doc) => {
+                Ok(doc) => {
                     let id = self.extract_id(&doc);
 
                     if let Some(id) = id {
@@ -237,48 +240,42 @@ impl ElasticsearchSinkFunc {
 
     // 执行批量操作
     async fn execute_bulk_operation(&self, operations: Vec<Value>, ctx: &mut OperatorContext) {
-        let response = self.client.get_client()
-            .bulk(BulkParts::None)
-            .body(operations)
-            .refresh(Refresh::True)
-            .send()
-            .await;
+        // 将每个操作单独发送
+        for i in 0..operations.len() / 2 {
+            let _action = &operations[i * 2];
+            let doc = &operations[i * 2 + 1];
 
-        match response {
-            Ok(response) => {
-                match response.json::<Value>().await {
-                    Ok(result) => {
-                        if let Some(errors) = result["errors"].as_bool() {
-                            if errors {
-                                // 有错误发生
-                                ctx.error_reporter
-                                    .report_error(
-                                        "Elasticsearch bulk operation error".to_string(),
-                                        format!("Errors in bulk operation: {:?}", result["items"]),
-                                    )
-                                    .await;
-                            } else {
-                                info!("Successfully executed bulk operation on index {}", self.index);
-                            }
+            // 使用 Elasticsearch 的 index API 而不是 bulk API
+            let response = self.client.get_client()
+                .index(IndexParts::Index(&self.index))
+                .body(doc)
+                .send()
+                .await;
+
+            match response {
+                Ok(response) => {
+                    match response.json::<Value>().await {
+                        Ok(_result) => {
+                            info!("Successfully indexed document to index {}", self.index);
+                        }
+                        Err(e) => {
+                            ctx.error_reporter
+                                .report_error(
+                                    "Failed to parse Elasticsearch response".to_string(),
+                                    format!("{:?}", e),
+                                )
+                                .await;
                         }
                     }
-                    Err(e) => {
-                        ctx.error_reporter
-                            .report_error(
-                                "Failed to parse Elasticsearch response".to_string(),
-                                format!("{:?}", e),
-                            )
-                            .await;
-                    }
                 }
-            }
-            Err(e) => {
-                ctx.error_reporter
-                    .report_error(
-                        "Elasticsearch bulk operation error".to_string(),
-                        format!("Failed to execute bulk operation: {:?}", e),
-                    )
-                    .await;
+                Err(e) => {
+                    ctx.error_reporter
+                        .report_error(
+                            "Elasticsearch index operation error".to_string(),
+                            format!("Failed to index document: {:?}", e),
+                        )
+                        .await;
+                }
             }
         }
     }

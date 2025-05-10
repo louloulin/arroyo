@@ -193,9 +193,13 @@ impl Connector for MongoDBConnector {
                                 client,
                                 database: table.database,
                                 collection: table.collection,
-                                format: config
-                                    .format
-                                    .ok_or_else(|| anyhow!("format required for MongoDB source"))?,
+                                format: match config.format {
+                                    Some(f) => f,
+                                    None => {
+                                        let _ = tx.send(Err(anyhow!("format required for MongoDB source")));
+                                        return;
+                                    }
+                                },
                                 framing: config.framing,
                                 bad_data: config.bad_data,
                             };
@@ -213,9 +217,13 @@ impl Connector for MongoDBConnector {
                                 database: table.database,
                                 collection: table.collection,
                                 serializer: ArrowSerializer::new(
-                                    config
-                                        .format
-                                        .ok_or_else(|| anyhow!("format required for MongoDB sink"))?,
+                                    match config.format {
+                                        Some(f) => f,
+                                        None => {
+                                            let _ = tx.send(Err(anyhow!("format required for MongoDB sink")));
+                                            return;
+                                        }
+                                    },
                                 ),
                             };
                             Ok(ConstructedOperator::from_operator(Box::new(sink_func)))
@@ -225,7 +233,7 @@ impl Connector for MongoDBConnector {
                 }
             };
 
-            tx.send(result).unwrap();
+            let _ = tx.send(result);
         });
 
         // 等待异步任务完成
