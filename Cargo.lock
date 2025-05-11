@@ -959,11 +959,13 @@ dependencies = [
 name = "arroyo-types"
 version = "0.15.0-dev"
 dependencies = [
+ "anyhow",
  "arrow",
  "arrow-array",
  "bincode",
  "chrono",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -9,6 +9,26 @@ use std::hash::Hash;
 use std::ops::RangeInclusive;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+// 导出统一数据模型
+mod record;
+pub use record::{Record, RecordMetadata, Stream};
+
+// 导出转换函数
+mod conversion;
+pub use conversion::{arrow_message_to_record, record_to_arrow_message};
+
+// 导出 Schema 兼容性函数
+mod schema_compat;
+pub use schema_compat::{
+    check_schema_compatibility, convert_batch_to_compatible_schema, SchemaCompatibility,
+};
+
+// 测试模块
+#[cfg(test)]
+mod record_test;
+#[cfg(test)]
+mod schema_compat_test;
+
 // worker configuration
 pub const JOB_ID_ENV: &str = "JOB_ID";
 pub const RUN_ID_ENV: &str = "RUN_ID";
