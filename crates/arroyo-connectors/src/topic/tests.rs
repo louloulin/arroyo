@@ -4,14 +4,18 @@ mod tests {
     use arroyo_rpc::api_types::connections::{ConnectionSchema, ConnectionType};
     use arroyo_rpc::formats::{Format, JsonFormat};
     use arroyo_rpc::ConnectorOptions;
+    use arroyo_types::Record;
     use serde_json::json;
+    use std::collections::HashMap;
+    use std::time::Duration;
 
+    use crate::topic::sink::{PartitionStrategy, TopicSinkFunc};
+    use crate::topic::source::TopicSourceFunc;
     use crate::topic::{SourceOffset, TableType, TopicTable};
 
     // 使用 SQL 解析器创建 ConnectorOptions
     fn mock_connector_options() -> ConnectorOptions {
-        let mut options = ConnectorOptions::try_from(&vec![]).unwrap();
-        options
+        ConnectorOptions::try_from(&vec![]).unwrap()
     }
 
     use crate::topic::TopicConnector;
@@ -135,5 +139,120 @@ mod tests {
 
         let operator = connector.make_operator(crate::EmptyConfig {}, table, config);
         assert!(operator.is_ok());
+    }
+
+    #[test]
+    fn test_topic_source_batch_prefetch() {
+        // 创建 TopicSourceFunc 实例
+        let source_func = TopicSourceFunc {
+            topic: "test-topic".to_string(),
+            offset_mode: crate::topic::source::SourceOffset::Earliest,
+            format: Format::Json(JsonFormat {
+                confluent_schema_registry: false,
+                schema_id: None,
+                include_schema: false,
+                debezium: false,
+                unstructured: false,
+                timestamp_format: arroyo_rpc::formats::TimestampFormat::RFC3339,
+            }),
+            framing: None,
+            bad_data: None,
+            metadata_fields: vec![],
+            batch_size: 10,
+            prefetch_count: 20,
+            prefetch_timeout: Duration::from_millis(100),
+        };
+
+        // 验证批处理和预取配置
+        assert_eq!(source_func.batch_size, 10);
+        assert_eq!(source_func.prefetch_count, 20);
+        assert_eq!(source_func.prefetch_timeout, Duration::from_millis(100));
+    }
+
+    #[test]
+    fn test_topic_source_prefetch_data() {
+        // 创建 TopicSourceFunc 实例
+        let source_func = TopicSourceFunc {
+            topic: "test-topic".to_string(),
+            offset_mode: crate::topic::source::SourceOffset::Earliest,
+            format: Format::Json(JsonFormat {
+                confluent_schema_registry: false,
+                schema_id: None,
+                include_schema: false,
+                debezium: false,
+                unstructured: false,
+                timestamp_format: arroyo_rpc::formats::TimestampFormat::RFC3339,
+            }),
+            framing: None,
+            bad_data: None,
+            metadata_fields: vec![],
+            batch_size: 5,
+            prefetch_count: 10,
+            prefetch_timeout: Duration::from_millis(100),
+        };
+
+        // 创建预取缓冲区
+        let mut prefetch_buffer: HashMap<u32, Vec<Record<String>>> = HashMap::new();
+        let partitions = vec![0u32, 1u32];
+        let mut offsets = HashMap::new();
+        offsets.insert(0u32, 0u64);
+        offsets.insert(1u32, 0u64);
+
+        // 执行预取
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            source_func.prefetch_data(&mut prefetch_buffer, &partitions, &offsets).await.unwrap();
+        });
+
+        // 验证预取结果
+        assert_eq!(prefetch_buffer.len(), 2); // 两个分区
+        assert_eq!(prefetch_buffer.get(&0).unwrap().len(), 10); // 每个分区预取 10 条记录
+        assert_eq!(prefetch_buffer.get(&1).unwrap().len(), 10);
+    }
+
+    #[test]
+    fn test_topic_sink_partition_strategy() {
+        use arroyo_formats::ser::ArrowSerializer;
+
+        // 创建 TopicSinkFunc 实例
+        let sink_func = TopicSinkFunc::new(
+            "test-topic".to_string(),
+            ArrowSerializer::new(Format::Json(JsonFormat {
+                confluent_schema_registry: false,
+                schema_id: None,
+                include_schema: false,
+                debezium: false,
+                unstructured: false,
+                timestamp_format: arroyo_rpc::formats::TimestampFormat::RFC3339,
+            })),
+        )
+        .with_partition_strategy(PartitionStrategy::RoundRobin)
+        .with_partition_count(3);
+
+        // 验证分区策略
+        assert_eq!(sink_func.partition_strategy, PartitionStrategy::RoundRobin);
+        assert_eq!(sink_func.partition_count, 3);
+    }
+
+    #[test]
+    fn test_topic_sink_transaction() {
+        use arroyo_formats::ser::ArrowSerializer;
+
+        // 创建 TopicSinkFunc 实例
+        let sink_func = TopicSinkFunc::new(
+            "test-topic".to_string(),
+            ArrowSerializer::new(Format::Json(JsonFormat {
+                confluent_schema_registry: false,
+                schema_id: None,
+                include_schema: false,
+                debezium: false,
+                unstructured: false,
+                timestamp_format: arroyo_rpc::formats::TimestampFormat::RFC3339,
+            })),
+        )
+        .with_transactions();
+
+        // 验证事务配置
+        assert!(sink_func.transactional);
     }
 }

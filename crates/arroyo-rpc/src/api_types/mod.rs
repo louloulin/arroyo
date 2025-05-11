@@ -4,6 +4,7 @@ use metrics::*;
 use partitions::*;
 use pipelines::*;
 use quotas::*;
+use topic_metrics::*;
 use topics::*;
 use udfs::*;
 
@@ -16,6 +17,7 @@ pub mod metrics;
 pub mod partitions;
 pub mod pipelines;
 pub mod quotas;
+pub mod topic_metrics;
 pub mod topics;
 pub mod udfs;
 

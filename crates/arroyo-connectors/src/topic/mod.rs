@@ -221,19 +221,37 @@ impl Connector for TopicConnector {
                         framing: config.framing,
                         bad_data: config.bad_data,
                         metadata_fields: config.metadata_fields,
+                        // 默认批处理配置
+                        batch_size: 100,
+                        // 默认预取配置
+                        prefetch_count: 1000,
+                        // 默认预取超时
+                        prefetch_timeout: std::time::Duration::from_millis(500),
                     },
                 )))
             },
-            TableType::Sink { .. } => Ok(ConstructedOperator::from_operator(Box::new(
-                TopicSinkFunc {
-                    topic: table.topic,
-                    serializer: ArrowSerializer::new(
-                        config
-                            .format
-                            .ok_or_else(|| anyhow!("format required for topic sink"))?,
-                    ),
-                },
-            ))),
+            TableType::Sink { .. } => {
+                let serializer = ArrowSerializer::new(
+                    config
+                        .format
+                        .ok_or_else(|| anyhow!("format required for topic sink"))?,
+                );
+
+                // 创建 TopicSinkFunc 实例
+                let sink_func = TopicSinkFunc::new(table.topic, serializer)
+                    // 默认使用轮询分区策略
+                    .with_partition_strategy(sink::PartitionStrategy::RoundRobin)
+                    // 默认启用事务
+                    .with_transactions()
+                    // 默认分区数量为 3
+                    .with_partition_count(3)
+                    // 默认刷新间隔为 1 秒
+                    .with_flush_interval(std::time::Duration::from_secs(1))
+                    // 默认缓冲区大小限制为 1000 条消息
+                    .with_buffer_size_limit(1000);
+
+                Ok(ConstructedOperator::from_operator(Box::new(sink_func)))
+            },
         }
     }
 }
