@@ -16,6 +16,18 @@ chaining.enabled = true
 enabled = false
 checkpoints-to-compact = 4
 
+[pipeline.state]
+backend-type = "parquet"
+enable-memory-cache = true
+memory-cache-size = 104857600  # 100MB
+enable-disk-cache = true
+disk-cache-path = "/tmp/arroyo/state-cache"
+disk-cache-size = 1073741824  # 1GB
+cache-expiration = "1h"
+enable-incremental-checkpoint = false
+max-incremental-checkpoints = 5
+incremental-checkpoint-interval = "1m"
+
 # Services
 
 [api]
@@ -85,8 +97,8 @@ user = "arroyo"
 password = "arroyo"
 
 [logging]
-format = "plaintext" # option: plaintext / json / logfmt 
+format = "plaintext" # option: plaintext / json / logfmt
 nonblocking = false
 enable-file-line = false
-enable-file-name = false 
+enable-file-name = false
 buffered-lines-limit = 4096

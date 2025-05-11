@@ -210,10 +210,7 @@ impl TieredStateBackend {
         match fs::read(&path).await {
             Ok(data) => {
                 // 更新访问时间
-                let now = SystemTime::now();
-                let _ = fs::File::open(&path)
-                    .await
-                    .and_then(|file| file.set_modified(now));
+                // 注意：tokio::fs::File不支持set_modified，这里我们忽略这个操作
 
                 Ok(Some(data))
             }
@@ -268,11 +265,11 @@ impl TieredStateBackend {
 
 #[async_trait::async_trait]
 impl BackingStore for TieredStateBackend {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "tiered"
     }
 
-    async fn load_checkpoint_metadata(job_id: &str, epoch: u32) -> Result<CheckpointMetadata> {
+    async fn load_checkpoint_metadata(&self, job_id: &str, epoch: u32) -> Result<CheckpointMetadata> {
         // 这里我们仍然使用远程存储，因为元数据需要在所有节点之间共享
         let storage_client = get_storage_provider().await?;
         let path = format!("{}/checkpoints/checkpoint-{:0>7}/metadata", job_id, epoch);
@@ -282,6 +279,7 @@ impl BackingStore for TieredStateBackend {
     }
 
     async fn load_operator_metadata(
+        &self,
         job_id: &str,
         operator_id: &str,
         epoch: u32,
@@ -304,6 +302,7 @@ impl BackingStore for TieredStateBackend {
     }
 
     async fn write_operator_checkpoint_metadata(
+        &self,
         metadata: OperatorCheckpointMetadata,
     ) -> Result<()> {
         // 这里我们仍然使用远程存储，因为元数据需要在所有节点之间共享
@@ -319,7 +318,7 @@ impl BackingStore for TieredStateBackend {
         Ok(())
     }
 
-    async fn write_checkpoint_metadata(metadata: CheckpointMetadata) -> Result<()> {
+    async fn write_checkpoint_metadata(&self, metadata: CheckpointMetadata) -> Result<()> {
         // 这里我们仍然使用远程存储，因为元数据需要在所有节点之间共享
         let storage_client = get_storage_provider().await?;
         let path = format!(
@@ -331,11 +330,12 @@ impl BackingStore for TieredStateBackend {
         Ok(())
     }
 
-    async fn prepare_checkpoint_load(_metadata: &CheckpointMetadata) -> anyhow::Result<()> {
+    async fn prepare_checkpoint_load(&self, _metadata: &CheckpointMetadata) -> anyhow::Result<()> {
         Ok(())
     }
 
     async fn cleanup_checkpoint(
+        &self,
         metadata: CheckpointMetadata,
         old_min_epoch: u32,
         new_min_epoch: u32,

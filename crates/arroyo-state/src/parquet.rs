@@ -37,11 +37,11 @@ fn operator_path(job_id: &str, epoch: u32, operator: &str) -> String {
 
 #[async_trait::async_trait]
 impl BackingStore for ParquetBackend {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "parquet"
     }
 
-    async fn load_checkpoint_metadata(job_id: &str, epoch: u32) -> Result<CheckpointMetadata> {
+    async fn load_checkpoint_metadata(&self, job_id: &str, epoch: u32) -> Result<CheckpointMetadata> {
         let storage_client = get_storage_provider().await?;
         let data = storage_client
             .get(metadata_path(&base_path(job_id, epoch)).as_str())
@@ -51,6 +51,7 @@ impl BackingStore for ParquetBackend {
     }
 
     async fn load_operator_metadata(
+        &self,
         job_id: &str,
         operator_id: &str,
         epoch: u32,
@@ -64,6 +65,7 @@ impl BackingStore for ParquetBackend {
     }
 
     async fn write_operator_checkpoint_metadata(
+        &self,
         metadata: OperatorCheckpointMetadata,
     ) -> Result<()> {
         let storage_client = get_storage_provider().await?;
@@ -83,7 +85,7 @@ impl BackingStore for ParquetBackend {
         Ok(())
     }
 
-    async fn write_checkpoint_metadata(metadata: CheckpointMetadata) -> Result<()> {
+    async fn write_checkpoint_metadata(&self, metadata: CheckpointMetadata) -> Result<()> {
         debug!("writing checkpoint {:?}", metadata);
         let storage_client = get_storage_provider().await?;
         let path = metadata_path(&base_path(&metadata.job_id, metadata.epoch));
@@ -93,11 +95,12 @@ impl BackingStore for ParquetBackend {
         Ok(())
     }
 
-    async fn prepare_checkpoint_load(_metadata: &CheckpointMetadata) -> anyhow::Result<()> {
+    async fn prepare_checkpoint_load(&self, _metadata: &CheckpointMetadata) -> anyhow::Result<()> {
         Ok(())
     }
 
     async fn cleanup_checkpoint(
+        &self,
         mut metadata: CheckpointMetadata,
         old_min_epoch: u32,
         min_epoch: u32,
@@ -149,7 +152,7 @@ impl BackingStore for ParquetBackend {
                 .await?;
         }
         metadata.min_epoch = min_epoch;
-        Self::write_checkpoint_metadata(metadata).await?;
+        self.write_checkpoint_metadata(metadata).await?;
         Ok(())
     }
 }
@@ -163,8 +166,9 @@ impl ParquetBackend {
     ) -> Result<HashMap<String, TableCheckpointMetadata>> {
         let min_files_to_compact = config().pipeline.compaction.checkpoints_to_compact as usize;
 
+        let backend = ParquetBackend;
         let operator_checkpoint_metadata =
-            Self::load_operator_metadata(&job_id, operator_id, epoch)
+            backend.load_operator_metadata(&job_id, operator_id, epoch)
                 .await?
                 .expect("expect operator metadata to still be present");
         let storage_provider = get_storage_provider().await?;
@@ -217,7 +221,8 @@ impl ParquetBackend {
         old_min_epoch: u32,
         new_min_epoch: u32,
     ) -> Result<String> {
-        let operator_metadata = Self::load_operator_metadata(&job_id, &operator_id, new_min_epoch)
+        let backend = ParquetBackend;
+        let operator_metadata = backend.load_operator_metadata(&job_id, &operator_id, new_min_epoch)
             .await?
             .expect("expect new_min_epoch metadata to still be present");
         let paths_to_keep: HashSet<String> = operator_metadata
@@ -247,7 +252,7 @@ impl ParquetBackend {
 
         for epoch_to_remove in old_min_epoch..new_min_epoch {
             let Some(operator_metadata) =
-                Self::load_operator_metadata(&job_id, &operator_id, epoch_to_remove).await?
+                backend.load_operator_metadata(&job_id, &operator_id, epoch_to_remove).await?
             else {
                 continue;
             };

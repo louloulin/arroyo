@@ -26,8 +26,12 @@ mod metrics;
 pub mod parquet;
 pub mod tiered;
 pub mod incremental_checkpoint;
+pub mod state_backend_factory;
 pub(crate) mod schemas;
 pub mod tables;
+
+#[cfg(test)]
+pub mod tests;
 
 pub const BINCODE_CONFIG: Configuration = bincode::config::standard();
 pub const FULL_KEY_RANGE: RangeInclusive<u64> = 0..=u64::MAX;
@@ -53,7 +57,11 @@ pub enum TableData {
     KeyedData { key: Vec<u8>, value: Vec<u8> },
 }
 
+// 默认使用Parquet后端
 pub type StateBackend = parquet::ParquetBackend;
+
+// 如果需要使用分层状态后端，可以修改为：
+// pub type StateBackend = tiered::TieredStateBackend;
 
 pub fn global_table_config(
     name: impl Into<String>,
@@ -128,32 +136,36 @@ pub enum DataOperation {
     DeleteTimeRange(DeleteTimeRangeOperation), // delete all values for key in range (only for KeyTimeMultiMap)
 }
 #[async_trait]
-pub trait BackingStore {
-    /// prepares a checkpoint to be loaded, e.g., by deleting future data
-    async fn prepare_checkpoint_load(metadata: &CheckpointMetadata) -> Result<()>;
+pub trait BackingStore: Send + Sync {
+    /// 返回状态后端的名称
+    fn name(&self) -> &'static str;
 
-    /// loads the checkpoint metadata for a given job id and epoch
-    async fn load_checkpoint_metadata(job_id: &str, epoch: u32) -> Result<CheckpointMetadata>;
+    /// 准备加载检查点，例如删除未来的数据
+    async fn prepare_checkpoint_load(&self, metadata: &CheckpointMetadata) -> Result<()>;
 
-    /// loads the operator checkpoint metadata for a given job id, operator id, and epoch
+    /// 加载给定作业ID和epoch的检查点元数据
+    async fn load_checkpoint_metadata(&self, job_id: &str, epoch: u32) -> Result<CheckpointMetadata>;
+
+    /// 加载给定作业ID、操作符ID和epoch的操作符检查点元数据
     async fn load_operator_metadata(
+        &self,
         job_id: &str,
         operator_id: &str,
         epoch: u32,
     ) -> Result<Option<OperatorCheckpointMetadata>>;
 
-    /// returns the name of the BackingStore implementation
-    fn name() -> &'static str;
+    /// 将操作符检查点元数据写入后端存储
+    async fn write_operator_checkpoint_metadata(
+        &self,
+        metadata: OperatorCheckpointMetadata,
+    ) -> Result<()>;
 
-    /// writes the operator checkpoint metadata to the backing store
-    async fn write_operator_checkpoint_metadata(metadata: OperatorCheckpointMetadata)
-        -> Result<()>;
+    /// 将检查点元数据写入后端存储
+    async fn write_checkpoint_metadata(&self, metadata: CheckpointMetadata) -> Result<()>;
 
-    /// writes the checkpoint metadata to the backing store
-    async fn write_checkpoint_metadata(metadata: CheckpointMetadata) -> Result<()>;
-
-    /// cleans up a checkpoint by deleting data that is no longer needed
+    /// 通过删除不再需要的数据来清理检查点
     async fn cleanup_checkpoint(
+        &self,
         metadata: CheckpointMetadata,
         old_min_epoch: u32,
         new_min_epoch: u32,

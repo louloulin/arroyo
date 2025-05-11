@@ -430,6 +430,10 @@ pub struct PipelineConfig {
     pub chaining: ChainingConfig,
 
     pub compaction: CompactionConfig,
+
+    /// 状态管理配置
+    #[serde(default)]
+    pub state: StateConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -437,6 +441,122 @@ pub struct PipelineConfig {
 pub struct ChainingConfig {
     /// Whether to enable operator chaining
     pub enabled: bool,
+}
+
+/// 状态后端类型
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum StateBackendType {
+    /// Parquet状态后端（默认）
+    Parquet,
+    /// 分层状态后端
+    Tiered,
+}
+
+impl Default for StateBackendType {
+    fn default() -> Self {
+        Self::Parquet
+    }
+}
+
+/// 状态管理配置
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct StateConfig {
+    /// 状态后端类型
+    #[serde(default)]
+    pub backend_type: StateBackendType,
+
+    /// 是否启用内存缓存
+    #[serde(default = "default_true")]
+    pub enable_memory_cache: bool,
+
+    /// 内存缓存大小（字节）
+    #[serde(default = "default_memory_cache_size")]
+    pub memory_cache_size: usize,
+
+    /// 是否启用本地磁盘缓存
+    #[serde(default = "default_true")]
+    pub enable_disk_cache: bool,
+
+    /// 本地磁盘缓存路径
+    #[serde(default = "default_disk_cache_path")]
+    pub disk_cache_path: PathBuf,
+
+    /// 本地磁盘缓存大小（字节）
+    #[serde(default = "default_disk_cache_size")]
+    pub disk_cache_size: usize,
+
+    /// 缓存过期时间
+    #[serde(default = "default_cache_expiration")]
+    pub cache_expiration: HumanReadableDuration,
+
+    /// 是否启用增量检查点
+    #[serde(default = "default_false")]
+    pub enable_incremental_checkpoint: bool,
+
+    /// 最大增量检查点数量
+    #[serde(default = "default_max_incremental_checkpoints")]
+    pub max_incremental_checkpoints: usize,
+
+    /// 增量检查点间隔
+    #[serde(default = "default_incremental_checkpoint_interval")]
+    pub incremental_checkpoint_interval: HumanReadableDuration,
+}
+
+impl Default for StateConfig {
+    fn default() -> Self {
+        Self {
+            backend_type: StateBackendType::default(),
+            enable_memory_cache: default_true(),
+            memory_cache_size: default_memory_cache_size(),
+            enable_disk_cache: default_true(),
+            disk_cache_path: default_disk_cache_path(),
+            disk_cache_size: default_disk_cache_size(),
+            cache_expiration: default_cache_expiration(),
+            enable_incremental_checkpoint: default_false(),
+            max_incremental_checkpoints: default_max_incremental_checkpoints(),
+            incremental_checkpoint_interval: default_incremental_checkpoint_interval(),
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_false() -> bool {
+    false
+}
+
+fn default_memory_cache_size() -> usize {
+    100 * 1024 * 1024 // 100MB
+}
+
+fn default_disk_cache_path() -> PathBuf {
+    PathBuf::from("/tmp/arroyo/state-cache")
+}
+
+fn default_disk_cache_size() -> usize {
+    1024 * 1024 * 1024 // 1GB
+}
+
+fn default_cache_expiration() -> HumanReadableDuration {
+    HumanReadableDuration {
+        duration: Duration::from_secs(60 * 60), // 1 hour
+        original: "1h".to_string(),
+    }
+}
+
+fn default_max_incremental_checkpoints() -> usize {
+    5
+}
+
+fn default_incremental_checkpoint_interval() -> HumanReadableDuration {
+    HumanReadableDuration {
+        duration: Duration::from_secs(60), // 1 minute
+        original: "1m".to_string(),
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone)]

@@ -19,6 +19,46 @@ pub struct IncrementalCheckpointMetadata {
     pub creation_time: SystemTime,
 }
 
+/// 可序列化的增量检查点元数据
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SerializableIncrementalCheckpointMetadata {
+    /// 基础检查点元数据（序列化为字节）
+    pub base_metadata_bytes: Vec<u8>,
+    /// 增量数据文件列表
+    pub incremental_files: HashMap<String, Vec<String>>,
+    /// 增量检查点创建时间（微秒时间戳）
+    pub creation_time_micros: u64,
+}
+
+impl From<IncrementalCheckpointMetadata> for SerializableIncrementalCheckpointMetadata {
+    fn from(metadata: IncrementalCheckpointMetadata) -> Self {
+        use prost::Message;
+
+        Self {
+            base_metadata_bytes: metadata.base_metadata.encode_to_vec(),
+            incremental_files: metadata.incremental_files,
+            creation_time_micros: metadata.creation_time
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros() as u64,
+        }
+    }
+}
+
+impl TryFrom<SerializableIncrementalCheckpointMetadata> for IncrementalCheckpointMetadata {
+    type Error = anyhow::Error;
+
+    fn try_from(serializable: SerializableIncrementalCheckpointMetadata) -> Result<Self> {
+        use prost::Message;
+
+        Ok(Self {
+            base_metadata: CheckpointMetadata::decode(&serializable.base_metadata_bytes[..])?,
+            incremental_files: serializable.incremental_files,
+            creation_time: SystemTime::UNIX_EPOCH + Duration::from_micros(serializable.creation_time_micros),
+        })
+    }
+}
+
 /// 增量检查点管理器
 pub struct IncrementalCheckpointManager {
     /// 存储提供者
@@ -135,10 +175,11 @@ impl IncrementalCheckpointManager {
             self.job_id, base_epoch, current_epoch
         );
 
-        // 这里我们需要序列化增量检查点元数据
-        // 由于IncrementalCheckpointMetadata不是protobuf消息，我们需要自定义序列化
-        // 这里简单使用JSON序列化
-        let metadata_json = serde_json::to_string(&incremental_metadata)?;
+        // 转换为可序列化的格式
+        let serializable_metadata = SerializableIncrementalCheckpointMetadata::from(incremental_metadata);
+
+        // 序列化为JSON
+        let metadata_json = serde_json::to_string(&serializable_metadata)?;
         self.storage_provider.put(metadata_path.as_str(), metadata_json.into_bytes()).await?;
 
         // 更新状态
@@ -172,7 +213,8 @@ impl IncrementalCheckpointManager {
         );
 
         let metadata_bytes = self.storage_provider.get(metadata_path.as_str()).await?;
-        let incremental_metadata: IncrementalCheckpointMetadata = serde_json::from_slice(&metadata_bytes)?;
+        let serializable_metadata: SerializableIncrementalCheckpointMetadata = serde_json::from_slice(&metadata_bytes)?;
+        let incremental_metadata = IncrementalCheckpointMetadata::try_from(serializable_metadata)?;
 
         // 返回基础检查点元数据
         // 实际应用增量变更的逻辑应该在恢复过程中处理

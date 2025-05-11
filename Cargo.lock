@@ -957,6 +957,9 @@ dependencies = [
  "parquet",
  "prometheus 0.14.0",
  "prost",
+ "serde",
+ "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]
