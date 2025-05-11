@@ -11,11 +11,22 @@ use crate::topic::sink::TopicSinkFunc;
 use crate::topic::source::TopicSourceFunc;
 use crate::{ConnectionType, EmptyConfig};
 
+mod admin;
+mod health;
 mod sink;
 mod source;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod admin_tests;
+
+#[cfg(test)]
+mod health_tests;
+
+pub use admin::TopicAdmin;
+pub use health::TopicHealthChecker;
 
 pub struct TopicConnector {}
 

@@ -53,6 +53,8 @@ mod cloud;
 mod connection_profiles;
 mod connection_tables;
 mod connectors;
+pub mod controllers;
+pub mod error;
 mod jobs;
 mod metrics;
 mod pipelines;

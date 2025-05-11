@@ -2,6 +2,7 @@ use checkpoints::*;
 use connections::*;
 use metrics::*;
 use pipelines::*;
+use topics::*;
 use udfs::*;
 
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ pub mod checkpoints;
 pub mod connections;
 pub mod metrics;
 pub mod pipelines;
+pub mod topics;
 pub mod udfs;
 
 #[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]

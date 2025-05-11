@@ -8,6 +8,7 @@ use http::{header, StatusCode, Uri};
 use rust_embed::RustEmbed;
 use tower_http::cors;
 use tower_http::cors::CorsLayer;
+use tracing::error;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -20,6 +21,10 @@ use crate::connection_tables::{
     test_schema,
 };
 use crate::connectors::get_connectors;
+use crate::controllers::topics::{
+    check_topic_health, create_topic, delete_topic, get_topic_details, list_topics, update_topic, TopicController,
+};
+use std::sync::Arc;
 use crate::jobs::{
     get_checkpoint_details, get_job_checkpoints, get_job_errors, get_job_output, get_jobs,
 };
@@ -43,6 +48,7 @@ struct Assets;
 pub struct AppState {
     pub(crate) controller_addr: String,
     pub(crate) database: DatabaseSource,
+    pub(crate) topic_controller: Arc<TopicController>,
 }
 
 /// Ping endpoint
@@ -125,6 +131,15 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .allow_headers(cors::Any)
         .allow_origin(cors::Any);
 
+    // 创建 Topic 控制器
+    let topic_controller = match TopicController::new(&config().kafka_bootstrap_servers) {
+        Ok(controller) => Arc::new(controller),
+        Err(e) => {
+            error!("Failed to create TopicController: {}", e);
+            Arc::new(TopicController::new("localhost:9092").unwrap())
+        }
+    };
+
     let jobs_routes = Router::new()
         .route("/", get(get_pipeline_jobs))
         .route("/:job_id/errors", get(get_job_errors))
@@ -158,6 +173,12 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .route("/connection_tables/test", post(test_connection_table))
         .route("/connection_tables/schemas/test", post(test_schema))
         .route("/connection_tables/:id", delete(delete_connection_table))
+        .route("/topics", get(list_topics))
+        .route("/topics", post(create_topic))
+        .route("/topics/health", post(check_topic_health))
+        .route("/topics/:name", get(get_topic_details))
+        .route("/topics/:name", patch(update_topic))
+        .route("/topics/:name", delete(delete_topic))
         .route("/udfs", post(create_udf))
         .route("/udfs", get(get_udfs))
         .route("/udfs/validate", post(validate_udf))
@@ -185,6 +206,7 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .with_state(AppState {
             controller_addr: controller_addr.to_string(),
             database,
+            topic_controller,
         })
         .layer(cors)
 }

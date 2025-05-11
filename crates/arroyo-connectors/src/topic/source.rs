@@ -1,4 +1,3 @@
-use anyhow::bail;
 use arroyo_operator::context::{SourceCollector, SourceContext};
 use arroyo_operator::operator::SourceOperator;
 use arroyo_operator::SourceFinishType;
@@ -15,7 +14,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::select;
 use tokio::time::MissedTickBehavior;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceOffset {
