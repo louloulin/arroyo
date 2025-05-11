@@ -33,6 +33,7 @@ pub mod redis;
 pub mod single_file;
 pub mod sse;
 pub mod stdout;
+pub mod topic;
 pub mod webhook;
 pub mod websocket;
 
@@ -58,6 +59,7 @@ pub fn connectors() -> HashMap<&'static str, Box<dyn ErasedConnector>> {
         Box::new(single_file::SingleFileConnector {}),
         Box::new(sse::SSEConnector {}),
         Box::new(stdout::StdoutConnector {}),
+        Box::new(topic::TopicConnector {}),
         Box::new(webhook::WebhookConnector {}),
         Box::new(websocket::WebsocketConnector {}),
     ];

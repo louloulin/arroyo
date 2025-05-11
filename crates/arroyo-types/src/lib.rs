@@ -23,11 +23,21 @@ pub use schema_compat::{
     check_schema_compatibility, convert_batch_to_compatible_schema, SchemaCompatibility,
 };
 
+// 导出序列化函数
+mod serialization;
+pub use serialization::{
+    create_deserializer, create_raw_bytes_deserializer, create_serializer, Deserializer,
+    JsonDeserializer, JsonSerializer, RawBytesDeserializer, RawBytesSerializer, SerializationFormat,
+    Serializer,
+};
+
 // 测试模块
 #[cfg(test)]
 mod record_test;
 #[cfg(test)]
 mod schema_compat_test;
+#[cfg(test)]
+mod serialization_test;
 
 // worker configuration
 pub const JOB_ID_ENV: &str = "JOB_ID";

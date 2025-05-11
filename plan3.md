@@ -391,10 +391,10 @@ pub struct Stream<T> {
    - [x] 实现 Schema 转换和兼容性检查
    - [x] 支持 Schema 演化和向后兼容性
 
-4. **序列化优化**：
-   - 实现高效的序列化和反序列化
-   - 支持多种格式（JSON、Avro、Protobuf 等）
-   - 优化内存使用和性能
+4. **✅ 序列化优化**：
+   - [x] 实现高效的序列化和反序列化
+   - [x] 支持多种格式（JSON、RawBytes，预留 Avro、Protobuf 扩展点）
+   - [x] 优化内存使用和性能
 
 ## 4. 关键特性
 
@@ -402,17 +402,17 @@ pub struct Stream<T> {
 
 融合设计的核心是统一流处理和消息队列，基于 Arroyo 现有的流处理能力扩展：
 
-1. **Topic 即流**：每个 Topic 可以直接作为流处理的输入
-   - 实现 `TopicSource` 连接器，扩展现有的 `SourceConnector` 接口
-   - 支持从任意 Topic 和偏移量开始消费
-   - 自动处理水印生成和传播
-   - 优化批处理和预取策略
+1. **✅ Topic 即流**：每个 Topic 可以直接作为流处理的输入
+   - [x] 实现 `TopicSource` 连接器，扩展现有的 `SourceConnector` 接口
+   - [x] 支持从任意 Topic 和偏移量开始消费
+   - [x] 自动处理水印生成和传播
+   - [ ] 优化批处理和预取策略
 
-2. **流即 Topic**：流处理的结果可以直接写入 Topic
-   - 实现 `TopicSink` 连接器，扩展现有的 `SinkConnector` 接口
-   - 支持事务性写入，确保精确一次语义
-   - 优化批处理和缓冲策略
-   - 支持自定义分区策略
+2. **✅ 流即 Topic**：流处理的结果可以直接写入 Topic
+   - [x] 实现 `TopicSink` 连接器，扩展现有的 `SinkConnector` 接口
+   - [ ] 支持事务性写入，确保精确一次语义
+   - [x] 优化批处理和缓冲策略
+   - [ ] 支持自定义分区策略
 
 3. **统一 API**：提供统一的 API 进行消息发送、消费和流处理
    - 扩展现有的 `ArroyoClient` 接口
@@ -745,9 +745,9 @@ Arroyo 当前架构主要包括以下组件：
 - 实现全面的监控和指标收集系统
 
 **TodoList**：
-- [ ] 设计 Topic 模型和接口
-  - [ ] 定义 `Topic` 和 `Partition` 数据模型
-  - [ ] 设计 Topic 配置选项（保留策略、复制因子等）
+- [x] 设计 Topic 模型和接口
+  - [x] 定义 `Topic` 和 `Partition` 数据模型
+  - [x] 设计 Topic 配置选项（保留策略、复制因子等）
   - [ ] 开发 Topic API（REST 和 gRPC）
   - [ ] 实现 Topic 权限和访问控制
 
