@@ -1,6 +1,7 @@
 use checkpoints::*;
 use connections::*;
 use metrics::*;
+use partitions::*;
 use pipelines::*;
 use quotas::*;
 use topics::*;
@@ -12,6 +13,7 @@ use utoipa::{IntoParams, ToSchema};
 pub mod checkpoints;
 pub mod connections;
 pub mod metrics;
+pub mod partitions;
 pub mod pipelines;
 pub mod quotas;
 pub mod topics;
