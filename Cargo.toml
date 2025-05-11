@@ -16,6 +16,7 @@ members = [
     "crates/arroyo-operator",
     "crates/arroyo-rpc",
     "crates/arroyo-server-common",
+    "crates/arroyo-sdk",
     "crates/arroyo-sql-testing",
     "crates/arroyo-state",
     "crates/arroyo-storage",

@@ -23,24 +23,30 @@
 //! async fn main() -> Result<()> {
 //!     // 创建客户端
 //!     let client = ArroyoClient::new("http://localhost:8000")?;
-//!     
+//!
 //!     // 获取所有作业
 //!     let jobs = client.get_jobs().await?;
 //!     println!("当前作业: {:?}", jobs);
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```
 
 pub mod client;
+pub mod consumer;
 pub mod error;
 pub mod models;
 pub mod connection;
 pub mod job;
 pub mod pipeline;
+pub mod producer;
 pub mod sql;
+pub mod topic;
 pub mod util;
 
 // Re-export commonly used types
 pub use client::ArroyoClient;
+pub use consumer::{Consumer, ConsumerBuilder, ConsumerOptions};
 pub use error::{Error, Result};
+pub use producer::{Producer, ProducerBuilder, ProducerOptions};
+pub use topic::{TopicBuilder, TopicOptions};

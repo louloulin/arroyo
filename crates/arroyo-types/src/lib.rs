@@ -23,6 +23,13 @@ pub use schema_compat::{
     check_schema_compatibility, convert_batch_to_compatible_schema, SchemaCompatibility,
 };
 
+// 导出统一转换层
+mod transform;
+pub use transform::{
+    ProcessingMode, TransformContext, TransformError, TransformFactory, TransformResult, Transformer,
+    create_cached_transformer, create_custom_transformer, create_optimized_transformer,
+};
+
 // 导出序列化函数
 mod serialization;
 pub use serialization::{
@@ -34,6 +41,9 @@ pub use serialization::{
 // 测试模块
 #[cfg(test)]
 mod record_test;
+
+#[cfg(test)]
+mod transform_test;
 #[cfg(test)]
 mod schema_compat_test;
 #[cfg(test)]
