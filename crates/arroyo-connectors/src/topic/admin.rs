@@ -14,6 +14,8 @@ pub struct TopicAdmin {
     server: String,
     /// 管理客户端
     admin_client: AdminClient<DefaultClientContext>,
+    /// 配额管理器
+    quota_manager: Option<crate::topic::TopicQuotaManager>,
 }
 
 // 使用 rdkafka 的默认客户端上下文
@@ -27,10 +29,26 @@ impl TopicAdmin {
             .create::<AdminClient<DefaultClientContext>>()
             .map_err(|e| anyhow!("Failed to create admin client: {}", e))?;
 
+        // 尝试创建配额管理器，但如果失败不阻止 TopicAdmin 的创建
+        let quota_manager = match crate::topic::TopicQuotaManager::new(server, Some(60)) {
+            Ok(manager) => Some(manager),
+            Err(e) => {
+                info!("Failed to create quota manager: {}, quota limits will not be enforced", e);
+                None
+            }
+        };
+
         Ok(Self {
             server: server.to_string(),
             admin_client,
+            quota_manager,
         })
+    }
+
+    /// 设置配额管理器
+    pub fn with_quota_manager(mut self, quota_manager: crate::topic::TopicQuotaManager) -> Self {
+        self.quota_manager = Some(quota_manager);
+        self
     }
 
     /// 创建 Topic
@@ -38,6 +56,12 @@ impl TopicAdmin {
         // 检查 Topic 是否已存在
         if self.topic_exists(&config.name).await? {
             bail!("Topic '{}' already exists", config.name);
+        }
+
+        // 检查配额和限制
+        if let Some(quota_manager) = &self.quota_manager {
+            // 验证 Topic 配置是否符合限制
+            quota_manager.validate_topic_config(config).await?;
         }
 
         // 创建 Topic
@@ -111,6 +135,12 @@ impl TopicAdmin {
         // 检查 Topic 是否存在
         if !self.topic_exists(&config.name).await? {
             bail!("Topic '{}' does not exist", config.name);
+        }
+
+        // 检查配额和限制
+        if let Some(quota_manager) = &self.quota_manager {
+            // 验证 Topic 配置是否符合限制
+            quota_manager.validate_topic_config(config).await?;
         }
 
         // 获取当前配置

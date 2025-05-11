@@ -2,6 +2,7 @@ use checkpoints::*;
 use connections::*;
 use metrics::*;
 use pipelines::*;
+use quotas::*;
 use topics::*;
 use udfs::*;
 
@@ -12,6 +13,7 @@ pub mod checkpoints;
 pub mod connections;
 pub mod metrics;
 pub mod pipelines;
+pub mod quotas;
 pub mod topics;
 pub mod udfs;
 

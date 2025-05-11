@@ -13,6 +13,7 @@ use crate::{ConnectionType, EmptyConfig};
 
 mod admin;
 mod health;
+mod quota;
 mod sink;
 mod source;
 
@@ -25,8 +26,15 @@ mod admin_tests;
 #[cfg(test)]
 mod health_tests;
 
+#[cfg(test)]
+mod quota_tests;
+
+#[cfg(test)]
+mod integration_tests;
+
 pub use admin::TopicAdmin;
 pub use health::TopicHealthChecker;
+pub use quota::TopicQuotaManager;
 
 pub struct TopicConnector {}
 
