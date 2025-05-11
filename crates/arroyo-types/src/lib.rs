@@ -30,6 +30,14 @@ pub use transform::{
     create_cached_transformer, create_custom_transformer, create_optimized_transformer,
 };
 
+// 导出水印策略
+mod watermark_strategy;
+pub use watermark_strategy::{
+    WatermarkStrategy, WatermarkStrategyType, WatermarkStrategyConfig, WatermarkStrategyFactory,
+    PeriodicWatermarkStrategy, PunctuatedWatermarkStrategy, AdaptiveWatermarkStrategy,
+    BoundedWatermarkStrategy, WatermarkAligner,
+};
+
 // 导出序列化函数
 mod serialization;
 pub use serialization::{
@@ -44,6 +52,9 @@ mod record_test;
 
 #[cfg(test)]
 mod transform_test;
+
+#[cfg(test)]
+mod watermark_strategy_test;
 #[cfg(test)]
 mod schema_compat_test;
 #[cfg(test)]
