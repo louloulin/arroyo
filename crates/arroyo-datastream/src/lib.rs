@@ -57,6 +57,8 @@ pub enum WindowType {
     Sliding { width: Duration, slide: Duration },
     Instant,
     Session { gap: Duration },
+    Count { size: usize },
+    Global,
 }
 
 fn format_duration(duration: Duration) -> String {
@@ -96,6 +98,12 @@ impl Debug for WindowType {
             }
             Self::Session { gap } => {
                 write!(f, "SessionWindow({})", format_duration(*gap))
+            }
+            Self::Count { size } => {
+                write!(f, "CountWindow(size: {})", size)
+            }
+            Self::Global => {
+                write!(f, "GlobalWindow")
             }
         }
     }

@@ -24,6 +24,8 @@ pub mod checkpoint_state;
 pub mod committing_state;
 mod metrics;
 pub mod parquet;
+pub mod tiered;
+pub mod incremental_checkpoint;
 pub(crate) mod schemas;
 pub mod tables;
 

@@ -314,6 +314,20 @@ fn last<I: Sized, const COUNT: usize>(opts: [Option<I>; COUNT]) -> Option<I> {
 }
 
 impl StorageProvider {
+    /// 创建一个用于测试的虚拟存储提供者
+    pub fn dummy() -> Self {
+        Self {
+            config: BackendConfig::Local(LocalConfig {
+                path: "/tmp".to_string(),
+                key: None,
+            }),
+            object_store: Arc::new(LocalFileSystem::new()),
+            multipart_store: None,
+            canonical_url: "file:///tmp".to_string(),
+            storage_options: HashMap::new(),
+        }
+    }
+
     pub async fn for_url(url: &str) -> Result<Self, StorageError> {
         Self::for_url_with_options(url, HashMap::new()).await
     }

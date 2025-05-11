@@ -1,4 +1,5 @@
 use crate::arrow::async_udf::AsyncUdfConstructor;
+
 use crate::arrow::incremental_aggregator::IncrementalAggregatingConstructor;
 use crate::arrow::instant_join::InstantJoinConstructor;
 use crate::arrow::join_with_expiration::JoinWithExpirationConstructor;
@@ -862,6 +863,8 @@ pub fn construct_operator(
         OperatorName::TumblingWindowAggregate => Box::new(TumblingAggregateWindowConstructor),
         OperatorName::SlidingWindowAggregate => Box::new(SlidingAggregatingWindowConstructor),
         OperatorName::SessionWindowAggregate => Box::new(SessionAggregatingWindowConstructor),
+        OperatorName::CountWindowAggregate => Box::new(TumblingAggregateWindowConstructor), // Temporarily use tumbling window
+        OperatorName::GlobalWindowAggregate => Box::new(SessionAggregatingWindowConstructor), // Temporarily use session window
         OperatorName::UpdatingAggregate => Box::new(IncrementalAggregatingConstructor),
         OperatorName::ExpressionWatermark => Box::new(WatermarkGeneratorConstructor),
         OperatorName::Join => Box::new(JoinWithExpirationConstructor),

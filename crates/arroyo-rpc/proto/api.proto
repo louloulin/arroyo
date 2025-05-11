@@ -147,21 +147,44 @@ message Window {
     TumblingWindow tumbling_window = 3;
     InstantWindow instant_window = 4;
     SessionWindow session_window = 5;
+    CountWindow count_window = 6;
+    GlobalWindow global_window = 7;
   }
 }
 
 message SlidingWindow {
   uint64 size_micros = 1;
   uint64 slide_micros = 2;
-
 }
+
 message TumblingWindow {
   uint64 size_micros = 1;
 }
+
 message InstantWindow {}
 
 message SessionWindow {
   uint64 gap_micros = 1;
+}
+
+message CountWindow {
+  uint64 size = 1;
+}
+
+message GlobalWindow {}
+
+message CountWindowAggregateOperator {
+  ArroyoSchema input_schema = 1;
+  uint64 size = 2;
+  bytes aggregation_plan = 3;
+}
+
+message GlobalWindowAggregateOperator {
+  ArroyoSchema input_schema = 1;
+  uint32 trigger_type = 2;  // 0: Count, 1: ProcessingTime, 2: Watermark, 3: Punctuation
+  uint64 count_size = 3;    // Used for Count trigger
+  uint64 time_interval_micros = 4;  // Used for ProcessingTime trigger
+  bytes aggregation_plan = 5;
 }
 
 message ExpressionWatermarkConfig {
@@ -273,7 +296,7 @@ message PythonUdfConfig {
 
 message ArrowProgramConfig {
   map<string, DylibUdfConfig> udf_dylibs = 1;
-  map<string, PythonUdfConfig> python_udfs = 2; 
+  map<string, PythonUdfConfig> python_udfs = 2;
 }
 
 // Arrow
@@ -296,7 +319,7 @@ message ArroyoSchema {
 message ChainedOperator {
   string operator_id = 1;
   string operator_name = 2;
-  bytes operator_config = 3; 
+  bytes operator_config = 3;
 }
 
 message ArrowNode {

@@ -328,6 +328,16 @@ impl AggregateExtension {
                     }))
                 }
                 WindowType::Instant => return Ok(timestamp_append),
+                WindowType::Count { size } => {
+                    // For count windows, we'll use a default width of 1 second
+                    let width = Duration::from_secs(1);
+                    (window_field, window_index, width, is_nested)
+                }
+                WindowType::Global => {
+                    // For global windows, we'll use a very large width
+                    let width = Duration::from_secs(u64::MAX);
+                    (window_field, window_index, width, is_nested)
+                }
             },
         };
         if is_nested {
@@ -524,6 +534,15 @@ impl ArroyoExtension for AggregateExtension {
                             );
                         }
                         WindowType::Session { gap: _ } => {
+                            self.session_window_config(planner, index, input_df_schema)?
+                        },
+                        WindowType::Count { size: _ } => {
+                            // For count windows, we'll use a default tumbling window of 1 second
+                            let default_width = Duration::from_secs(1);
+                            self.tumbling_window_config(planner, index, input_df_schema, default_width)?
+                        },
+                        WindowType::Global => {
+                            // For global windows, we'll use a session window with a very large gap
                             self.session_window_config(planner, index, input_df_schema)?
                         }
                     }

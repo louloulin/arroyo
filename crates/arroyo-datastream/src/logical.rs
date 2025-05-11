@@ -37,6 +37,8 @@ pub enum OperatorName {
     TumblingWindowAggregate,
     SlidingWindowAggregate,
     SessionWindowAggregate,
+    CountWindowAggregate,
+    GlobalWindowAggregate,
     UpdatingAggregate,
     ConnectorSource,
     ConnectorSink,
@@ -394,6 +396,12 @@ impl LogicalProgram {
                     }
                     OperatorName::SessionWindowAggregate => {
                         "sql-session-window-aggregate".to_string()
+                    }
+                    OperatorName::CountWindowAggregate => {
+                        "sql-count-window-aggregate".to_string()
+                    }
+                    OperatorName::GlobalWindowAggregate => {
+                        "sql-global-window-aggregate".to_string()
                     }
                     OperatorName::UpdatingAggregate => "sql-updating-aggregate".to_string(),
                     OperatorName::ConnectorSource => {
