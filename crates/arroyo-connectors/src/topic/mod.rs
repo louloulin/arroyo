@@ -16,6 +16,7 @@ mod alert;
 mod export;
 mod health;
 mod metrics;
+mod migrate;
 mod partition;
 mod permission;
 mod quota;
@@ -41,6 +42,9 @@ mod health_tests;
 mod metrics_tests;
 
 #[cfg(test)]
+mod migrate_tests;
+
+#[cfg(test)]
 mod quota_tests;
 
 #[cfg(test)]
@@ -60,6 +64,7 @@ pub use alert::{AlertNotifier, EmailNotifier, TopicAlertManager, WebhookNotifier
 pub use export::TopicExport;
 pub use health::TopicHealthChecker;
 pub use metrics::TopicMetricsCollector;
+pub use migrate::{MigrationConfig, MigrationMode, MigrationStatus, ReplicationMode, TopicMigrator};
 pub use partition::PartitionManager;
 pub use permission::TopicPermissionManager;
 pub use quota::TopicQuotaManager;

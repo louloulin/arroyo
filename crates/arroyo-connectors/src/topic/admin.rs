@@ -13,7 +13,7 @@ use tracing::info;
 /// Topic 管理器
 pub struct TopicAdmin {
     /// 服务器地址
-    server: String,
+    pub server: String,
     /// 管理客户端
     admin_client: AdminClient<DefaultClientContext>,
     /// 配额管理器
@@ -387,7 +387,7 @@ impl TopicAdmin {
     }
 
     /// 检查 Topic 是否存在
-    async fn topic_exists(&self, name: &str) -> Result<bool> {
+    pub async fn topic_exists(&self, name: &str) -> Result<bool> {
         let metadata = self
             .admin_client
             .inner()
@@ -404,7 +404,7 @@ impl TopicAdmin {
     }
 
     /// 获取 Topic 配置
-    async fn get_topic_config(&self, name: &str) -> Result<TopicInfo> {
+    pub async fn get_topic_config(&self, name: &str) -> Result<TopicInfo> {
         // 获取元数据
         let metadata = self
             .admin_client
