@@ -40,6 +40,7 @@ snap = "1.1"
 zstd = "0.13"
 lru = "0.14.0"
 regex = "1.11.1"
+governor = "0.10.0"
 
 [dev-dependencies]
 mockito = "1.2.0"

@@ -37,6 +37,7 @@ pub mod compression;
 pub mod consumer;
 pub mod consumer_group;
 pub mod error;
+pub mod flow_control;
 pub mod models;
 pub mod connection;
 pub mod job;

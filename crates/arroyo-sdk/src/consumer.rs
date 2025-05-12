@@ -112,6 +112,8 @@ pub struct ConsumerOptions {
     pub partition_assignment_strategy: Option<PartitionAssignmentStrategy>,
     /// 其他配置选项
     pub config: Option<HashMap<String, String>>,
+    /// 流量控制配置
+    pub flow_control_config: Option<crate::flow_control::FlowControlConfig>,
 }
 
 impl Default for ConsumerOptions {
@@ -130,6 +132,7 @@ impl Default for ConsumerOptions {
             enable_consumer_group: false,
             partition_assignment_strategy: Some(PartitionAssignmentStrategy::RoundRobin),
             config: None,
+            flow_control_config: None,
         }
     }
 }
@@ -235,6 +238,44 @@ impl ConsumerBuilder {
         self
     }
 
+    /// 设置流量控制配置
+    pub fn flow_control(mut self, config: crate::flow_control::FlowControlConfig) -> Self {
+        self.options.flow_control_config = Some(config);
+        self
+    }
+
+    /// 启用固定速率限流
+    pub fn enable_rate_limiting(mut self, messages_per_second: u32) -> Self {
+        use crate::flow_control::{FlowControlConfig, FlowControlStrategy, BackpressureStrategy};
+
+        let config = FlowControlConfig {
+            strategy: FlowControlStrategy::FixedRate,
+            max_messages_per_second: messages_per_second,
+            backpressure_strategy: BackpressureStrategy::Block,
+            buffer_size: 10000,
+            backpressure_threshold: 0.8,
+        };
+
+        self.options.flow_control_config = Some(config);
+        self
+    }
+
+    /// 启用自适应速率限流
+    pub fn enable_adaptive_rate_limiting(mut self, initial_messages_per_second: u32) -> Self {
+        use crate::flow_control::{FlowControlConfig, FlowControlStrategy, BackpressureStrategy};
+
+        let config = FlowControlConfig {
+            strategy: FlowControlStrategy::Adaptive,
+            max_messages_per_second: initial_messages_per_second,
+            backpressure_strategy: BackpressureStrategy::Block,
+            buffer_size: 10000,
+            backpressure_threshold: 0.8,
+        };
+
+        self.options.flow_control_config = Some(config);
+        self
+    }
+
     /// 构建 ConsumerOptions
     pub fn build(self) -> ConsumerOptions {
         self.options
@@ -255,6 +296,8 @@ pub struct Consumer {
     subscription_type: Option<SubscriptionType>,
     /// 消费者组管理器
     group_manager: Option<Arc<RwLock<crate::consumer_group::ConsumerGroupManager>>>,
+    /// 流量控制器
+    flow_controller: Option<Arc<crate::flow_control::FlowController>>,
 }
 
 impl Consumer {
@@ -292,6 +335,13 @@ impl Consumer {
             None
         };
 
+        // 创建流量控制器（如果配置了流量控制）
+        let flow_controller = if let Some(flow_config) = &options.flow_control_config {
+            Some(Arc::new(crate::flow_control::FlowController::new(flow_config.clone())))
+        } else {
+            None
+        };
+
         Self {
             client,
             topic: topic_opt,
@@ -299,6 +349,7 @@ impl Consumer {
             options,
             subscription_type,
             group_manager,
+            flow_controller,
         }
     }
 
@@ -330,6 +381,13 @@ impl Consumer {
             None
         };
 
+        // 创建流量控制器（如果配置了流量控制）
+        let flow_controller = if let Some(flow_config) = &options_with_subscription.flow_control_config {
+            Some(Arc::new(crate::flow_control::FlowController::new(flow_config.clone())))
+        } else {
+            None
+        };
+
         Self {
             client,
             topic: topic_opt,
@@ -337,11 +395,21 @@ impl Consumer {
             options: options_with_subscription,
             subscription_type: Some(subscription),
             group_manager,
+            flow_controller,
         }
     }
 
     /// 拉取消息
     pub async fn poll(&self, timeout: Duration) -> Result<Vec<Message>> {
+        // 应用流量控制
+        if let Some(flow_controller) = &self.flow_controller {
+            // 检查是否应该应用流量控制
+            if !flow_controller.apply_flow_control().await {
+                // 如果流量控制器决定丢弃消息，则返回空结果
+                return Ok(vec![]);
+            }
+        }
+
         // 如果启用了消费者组，确保消费者组管理器已启动
         if self.options.enable_consumer_group {
             if let Some(group_manager) = &self.group_manager {
@@ -416,6 +484,16 @@ impl Consumer {
                     all_messages.extend(messages);
                 }
 
+                // 更新流量控制器的缓冲区使用量
+                if let Some(flow_controller) = &self.flow_controller {
+                    flow_controller.update_buffer_usage(all_messages.len()).await;
+
+                    // 如果有消息，调整流量控制参数
+                    if !all_messages.is_empty() {
+                        flow_controller.adjust_parameters(all_messages.len() as f64, timeout).await;
+                    }
+                }
+
                 return Ok(all_messages);
             }
         }
@@ -438,7 +516,19 @@ impl Consumer {
                 .send()
                 .await?;
 
-            return self.client.handle_response(response).await;
+            let messages: Vec<Message> = self.client.handle_response(response).await?;
+
+            // 更新流量控制器的缓冲区使用量
+            if let Some(flow_controller) = &self.flow_controller {
+                flow_controller.update_buffer_usage(messages.len()).await;
+
+                // 如果有消息，调整流量控制参数
+                if !messages.is_empty() {
+                    flow_controller.adjust_parameters(messages.len() as f64, timeout).await;
+                }
+            }
+
+            return Ok(messages);
         }
 
         // 如果是多个 Topic 或正则表达式订阅，则需要获取所有匹配的 Topic
@@ -472,6 +562,16 @@ impl Consumer {
 
             let messages: Vec<Message> = self.client.handle_response(response).await?;
             all_messages.extend(messages);
+        }
+
+        // 更新流量控制器的缓冲区使用量
+        if let Some(flow_controller) = &self.flow_controller {
+            flow_controller.update_buffer_usage(all_messages.len()).await;
+
+            // 如果有消息，调整流量控制参数
+            if !all_messages.is_empty() {
+                flow_controller.adjust_parameters(all_messages.len() as f64, timeout).await;
+            }
         }
 
         Ok(all_messages)

@@ -551,7 +551,7 @@ dependencies = [
  "fluvio",
  "futures",
  "glob",
- "governor",
+ "governor 0.8.1",
  "itertools 0.14.0",
  "mongodb",
  "nkeys 0.3.2",
@@ -851,6 +851,7 @@ dependencies = [
  "chrono",
  "flate2",
  "futures",
+ "governor 0.10.0",
  "lru",
  "lz4_flex",
  "mockito",
@@ -4705,6 +4706,29 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.2",
  "no-std-compat",
+ "nonzero_ext",
+ "parking_lot 0.12.3",
+ "portable-atomic",
+ "quanta",
+ "rand 0.9.0",
+ "smallvec",
+ "spinning_top",
+ "web-time",
+]
+
+[[package]]
+name = "governor"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cbe789d04bf14543f03c4b60cd494148aa79438c8440ae7d81a7778147745c3"
+dependencies = [
+ "cfg-if",
+ "dashmap 6.1.0",
+ "futures-sink",
+ "futures-timer",
+ "futures-util",
+ "getrandom 0.3.2",
+ "hashbrown 0.15.2",
  "nonzero_ext",
  "parking_lot 0.12.3",
  "portable-atomic",
