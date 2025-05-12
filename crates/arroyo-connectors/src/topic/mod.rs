@@ -13,6 +13,7 @@ use crate::{ConnectionType, EmptyConfig};
 
 mod admin;
 mod health;
+mod metrics;
 mod partition;
 mod permission;
 mod quota;
@@ -27,6 +28,9 @@ mod admin_tests;
 
 #[cfg(test)]
 mod health_tests;
+
+#[cfg(test)]
+mod metrics_tests;
 
 #[cfg(test)]
 mod quota_tests;
@@ -45,6 +49,7 @@ mod integration_tests;
 
 pub use admin::TopicAdmin;
 pub use health::TopicHealthChecker;
+pub use metrics::TopicMetricsCollector;
 pub use partition::PartitionManager;
 pub use permission::TopicPermissionManager;
 pub use quota::TopicQuotaManager;

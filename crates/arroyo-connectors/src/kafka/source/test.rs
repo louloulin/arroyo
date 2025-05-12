@@ -3,6 +3,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arroyo_state::tables::global_keyed_map::GlobalKeyedTable;
 use arroyo_state::tables::ErasedTable;
 use arroyo_state::{BackingStore, StateBackend};
+use arroyo_state::parquet::ParquetBackend;
 use rand::random;
 
 use crate::kafka::SourceOffset;
@@ -310,7 +311,7 @@ async fn test_kafka() {
     .unwrap()
     .unwrap();
 
-    let backend = ParquetBackend::new();
+    let backend = ParquetBackend;
     StateBackend::write_operator_checkpoint_metadata(
         &backend,
         OperatorCheckpointMetadata {
