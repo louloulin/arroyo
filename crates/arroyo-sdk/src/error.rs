@@ -16,6 +16,12 @@ pub enum Error {
     SerializationError(String),
     /// 验证错误
     ValidationError(String),
+    /// 压缩错误
+    CompressionError(String),
+    /// 解压缩错误
+    DecompressionError(String),
+    /// 无效的压缩类型
+    InvalidCompressionType(String),
     /// 其他错误
     Other(String),
 }
@@ -28,6 +34,9 @@ impl fmt::Display for Error {
             Error::DeserializationError(message) => write!(f, "Deserialization error: {}", message),
             Error::SerializationError(message) => write!(f, "Serialization error: {}", message),
             Error::ValidationError(message) => write!(f, "Validation error: {}", message),
+            Error::CompressionError(message) => write!(f, "Compression error: {}", message),
+            Error::DecompressionError(message) => write!(f, "Decompression error: {}", message),
+            Error::InvalidCompressionType(message) => write!(f, "Invalid compression type: {}", message),
             Error::Other(message) => write!(f, "Error: {}", message),
         }
     }
@@ -56,5 +65,18 @@ impl From<std::io::Error> for Error {
 impl From<serde_yaml::Error> for Error {
     fn from(err: serde_yaml::Error) -> Self {
         Error::SerializationError(err.to_string())
+    }
+}
+
+impl From<snap::Error> for Error {
+    fn from(err: snap::Error) -> Self {
+        Error::CompressionError(err.to_string())
+    }
+}
+
+// zstd 库没有公开 Error 类型，所以我们使用字符串处理
+impl From<String> for Error {
+    fn from(err: String) -> Self {
+        Error::CompressionError(err)
     }
 }

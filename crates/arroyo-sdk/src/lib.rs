@@ -33,6 +33,7 @@
 //! ```
 
 pub mod client;
+pub mod compression;
 pub mod consumer;
 pub mod error;
 pub mod models;
@@ -46,7 +47,11 @@ pub mod util;
 
 // Re-export commonly used types
 pub use client::ArroyoClient;
+pub use compression::CompressionType;
 pub use consumer::{Consumer, ConsumerBuilder, ConsumerOptions};
 pub use error::{Error, Result};
-pub use producer::{Producer, ProducerBuilder, ProducerOptions, SendCallback, SendResult};
+pub use producer::{
+    AdaptiveBatchingConfig, AdaptiveBatchingStrategy, Producer, ProducerBuilder, ProducerOptions,
+    SendCallback, SendResult,
+};
 pub use topic::{TopicBuilder, TopicOptions};

@@ -849,13 +849,16 @@ dependencies = [
  "arroyo-types",
  "async-trait",
  "chrono",
+ "flate2",
  "futures",
+ "lz4_flex",
  "mockito",
  "prost",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
  "serde_yaml",
+ "snap",
  "thiserror 2.0.12",
  "tokio",
  "tokio-stream",
@@ -865,6 +868,7 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+ "zstd",
 ]
 
 [[package]]
