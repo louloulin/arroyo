@@ -50,6 +50,10 @@ pub mod util;
 // Re-export commonly used types
 pub use client::ArroyoClient;
 pub use compression::CompressionType;
+pub use connection::{
+    ConnectionConfig, ConnectionPool, ConnectionPoolStats, ConnectionState, PooledArroyoClient,
+    SessionInfo,
+};
 pub use consumer::{Consumer, ConsumerBuilder, ConsumerOptions, SubscriptionType};
 pub use consumer_group::{
     ConsumerGroupManager, GroupMember, GroupState, HeartbeatResponse, JoinGroupResponse,

@@ -1,1 +1,714 @@
-// 连接模块，将在未来实现
+use crate::error::{Error, Result};
+use reqwest::{Client, ClientBuilder, Response, StatusCode};
+use serde::de::DeserializeOwned;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::{Mutex, RwLock};
+use tracing::error;
+
+/// 连接状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionState {
+    /// 空闲状态
+    Idle,
+    /// 正在使用
+    InUse,
+    /// 正在验证
+    Validating,
+    /// 已关闭
+    Closed,
+}
+
+/// 连接配置
+#[derive(Debug, Clone)]
+pub struct ConnectionConfig {
+    /// 最大连接数
+    pub max_connections: usize,
+    /// 最小连接数
+    pub min_connections: usize,
+    /// 连接超时时间（秒）
+    pub connection_timeout_secs: u64,
+    /// 空闲连接超时时间（秒）
+    pub idle_timeout_secs: u64,
+    /// 最大空闲连接数
+    pub max_idle_connections: usize,
+    /// 连接验证间隔（秒）
+    pub validation_interval_secs: u64,
+    /// 重试次数
+    pub retry_attempts: u32,
+    /// 重试间隔（毫秒）
+    pub retry_interval_ms: u64,
+    /// 是否启用连接池
+    pub enable_connection_pooling: bool,
+    /// 是否启用会话管理
+    pub enable_session_management: bool,
+}
+
+impl Default for ConnectionConfig {
+    fn default() -> Self {
+        Self {
+            max_connections: 10,
+            min_connections: 1,
+            connection_timeout_secs: 30,
+            idle_timeout_secs: 300,
+            max_idle_connections: 5,
+            validation_interval_secs: 60,
+            retry_attempts: 3,
+            retry_interval_ms: 500,
+            enable_connection_pooling: true,
+            enable_session_management: true,
+        }
+    }
+}
+
+/// 连接信息
+#[derive(Debug)]
+struct ConnectionInfo {
+    /// HTTP 客户端
+    client: Client,
+    /// 连接状态
+    state: ConnectionState,
+    /// 最后使用时间
+    last_used: Instant,
+    /// 创建时间
+    created_at: Instant,
+    /// 使用次数
+    usage_count: u64,
+}
+
+/// 会话信息
+#[derive(Debug, Clone)]
+pub struct SessionInfo {
+    /// 会话 ID
+    pub session_id: String,
+    /// 创建时间
+    pub created_at: Instant,
+    /// 最后活动时间
+    pub last_activity: Instant,
+    /// 用户 ID
+    pub user_id: Option<String>,
+    /// 会话数据
+    pub data: HashMap<String, String>,
+}
+
+/// 连接池管理器
+#[derive(Debug, Clone)]
+pub struct ConnectionPool {
+    /// 基础 URL
+    base_url: String,
+    /// 连接配置
+    config: ConnectionConfig,
+    /// 连接池
+    pool: Arc<RwLock<Vec<ConnectionInfo>>>,
+    /// 会话管理器
+    session_manager: Arc<RwLock<HashMap<String, SessionInfo>>>,
+    /// 是否正在清理
+    is_cleaning: Arc<Mutex<bool>>,
+}
+
+impl ConnectionPool {
+    /// 创建新的连接池
+    pub fn new(base_url: impl Into<String>, config: ConnectionConfig) -> Self {
+        let pool = Self {
+            base_url: base_url.into(),
+            config,
+            pool: Arc::new(RwLock::new(Vec::new())),
+            session_manager: Arc::new(RwLock::new(HashMap::new())),
+            is_cleaning: Arc::new(Mutex::new(false)),
+        };
+
+        // 启动后台清理任务
+        if pool.config.enable_connection_pooling {
+            let pool_clone = pool.clone();
+            tokio::spawn(async move {
+                pool_clone.start_cleanup_task().await;
+            });
+        }
+
+        pool
+    }
+
+    /// 获取连接
+    pub async fn get_connection(&self) -> Result<Client> {
+        if !self.config.enable_connection_pooling {
+            // 如果未启用连接池，直接创建新连接
+            return self.create_client();
+        }
+
+        // 尝试从池中获取空闲连接
+        let mut pool = self.pool.write().await;
+
+        // 查找空闲连接
+        for conn_info in pool.iter_mut() {
+            if conn_info.state == ConnectionState::Idle {
+                conn_info.state = ConnectionState::InUse;
+                conn_info.last_used = Instant::now();
+                conn_info.usage_count += 1;
+                return Ok(conn_info.client.clone());
+            }
+        }
+
+        // 如果没有空闲连接且未达到最大连接数，创建新连接
+        if pool.len() < self.config.max_connections {
+            let client = self.create_client()?;
+
+            pool.push(ConnectionInfo {
+                client: client.clone(),
+                state: ConnectionState::InUse,
+                last_used: Instant::now(),
+                created_at: Instant::now(),
+                usage_count: 1,
+            });
+
+            return Ok(client);
+        }
+
+        // 如果达到最大连接数，等待连接释放或超时
+        drop(pool);
+
+        let start = Instant::now();
+        let timeout = Duration::from_secs(self.config.connection_timeout_secs);
+
+        while start.elapsed() < timeout {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
+            let mut pool = self.pool.write().await;
+
+            // 再次尝试获取空闲连接
+            for conn_info in pool.iter_mut() {
+                if conn_info.state == ConnectionState::Idle {
+                    conn_info.state = ConnectionState::InUse;
+                    conn_info.last_used = Instant::now();
+                    conn_info.usage_count += 1;
+                    return Ok(conn_info.client.clone());
+                }
+            }
+
+            drop(pool);
+        }
+
+        Err(Error::ConnectionError("连接池已满，无法获取连接".to_string()))
+    }
+
+    /// 释放连接
+    pub async fn release_connection(&self, client: &Client) {
+        if !self.config.enable_connection_pooling {
+            return;
+        }
+
+        let mut pool = self.pool.write().await;
+
+        // 查找对应的连接并标记为空闲
+        for conn_info in pool.iter_mut() {
+            // 由于 Client 不能直接比较，我们使用客户端的地址作为标识
+            let client_ptr = client as *const Client;
+            let conn_client_ptr = &conn_info.client as *const Client;
+
+            if std::ptr::eq(client_ptr, conn_client_ptr) {
+                conn_info.state = ConnectionState::Idle;
+                conn_info.last_used = Instant::now();
+                break;
+            }
+        }
+    }
+
+    /// 创建新的 HTTP 客户端
+    fn create_client(&self) -> Result<Client> {
+        let client = ClientBuilder::new()
+            .timeout(Duration::from_secs(self.config.connection_timeout_secs))
+            .tcp_keepalive(Some(Duration::from_secs(30)))
+            .pool_max_idle_per_host(self.config.max_idle_connections)
+            .pool_idle_timeout(Duration::from_secs(self.config.idle_timeout_secs))
+            .build()
+            .map_err(|e| Error::ClientError(e.to_string()))?;
+
+        Ok(client)
+    }
+
+    /// 验证连接
+    async fn validate_connection(&self, client: &Client) -> bool {
+        // 简单的连接验证：发送 HEAD 请求到基础 URL
+        match client
+            .head(&self.base_url)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+        {
+            Ok(response) => response.status().is_success(),
+            Err(_) => false,
+        }
+    }
+
+    /// 清理过期连接
+    pub async fn cleanup_connections(&self) {
+        // 获取清理锁
+        let mut is_cleaning = self.is_cleaning.lock().await;
+        if *is_cleaning {
+            return;
+        }
+        *is_cleaning = true;
+
+        let mut pool = self.pool.write().await;
+        let now = Instant::now();
+
+        // 标记要移除的连接索引
+        let mut to_remove = Vec::new();
+
+        for (i, conn_info) in pool.iter_mut().enumerate() {
+            // 跳过正在使用的连接
+            if conn_info.state == ConnectionState::InUse {
+                continue;
+            }
+
+            // 检查空闲超时
+            if conn_info.state == ConnectionState::Idle
+                && now.duration_since(conn_info.last_used).as_secs() > self.config.idle_timeout_secs
+            {
+                to_remove.push(i);
+                continue;
+            }
+
+            // 定期验证空闲连接
+            if conn_info.state == ConnectionState::Idle
+                && now.duration_since(conn_info.last_used).as_secs() > self.config.validation_interval_secs
+            {
+                conn_info.state = ConnectionState::Validating;
+
+                // 克隆连接信息以便在外部验证
+                let client = conn_info.client.clone();
+                let pool_clone = self.clone();
+
+                // 在单独的任务中验证连接
+                tokio::spawn(async move {
+                    let is_valid = pool_clone.validate_connection(&client).await;
+
+                    let mut pool = pool_clone.pool.write().await;
+
+                    // 查找对应的连接
+                    for conn in pool.iter_mut() {
+                        // 由于 Client 不能直接比较，我们使用客户端的地址作为标识
+                        let client_ptr = &client as *const Client;
+                        let conn_client_ptr = &conn.client as *const Client;
+
+                        if std::ptr::eq(client_ptr, conn_client_ptr) {
+                            if is_valid {
+                                conn.state = ConnectionState::Idle;
+                            } else {
+                                conn.state = ConnectionState::Closed;
+                            }
+                            break;
+                        }
+                    }
+                });
+            }
+
+            // 移除已关闭的连接
+            if conn_info.state == ConnectionState::Closed {
+                to_remove.push(i);
+            }
+        }
+
+        // 从后向前移除连接，避免索引失效
+        for i in to_remove.into_iter().rev() {
+            pool.remove(i);
+        }
+
+        // 确保至少有最小连接数
+        while pool.len() < self.config.min_connections {
+            match self.create_client() {
+                Ok(client) => {
+                    pool.push(ConnectionInfo {
+                        client,
+                        state: ConnectionState::Idle,
+                        last_used: Instant::now(),
+                        created_at: Instant::now(),
+                        usage_count: 0,
+                    });
+                }
+                Err(e) => {
+                    error!("创建连接失败: {}", e);
+                    break;
+                }
+            }
+        }
+
+        *is_cleaning = false;
+    }
+
+    /// 启动清理任务
+    async fn start_cleanup_task(&self) {
+        let interval = Duration::from_secs(self.config.validation_interval_secs);
+
+        loop {
+            tokio::time::sleep(interval).await;
+            self.cleanup_connections().await;
+        }
+    }
+
+    /// 创建会话
+    pub async fn create_session(&self, user_id: Option<String>) -> String {
+        if !self.config.enable_session_management {
+            return "".to_string();
+        }
+
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let now = Instant::now();
+
+        let session = SessionInfo {
+            session_id: session_id.clone(),
+            created_at: now,
+            last_activity: now,
+            user_id,
+            data: HashMap::new(),
+        };
+
+        let mut sessions = self.session_manager.write().await;
+        sessions.insert(session_id.clone(), session);
+
+        session_id
+    }
+
+    /// 获取会话
+    pub async fn get_session(&self, session_id: &str) -> Option<SessionInfo> {
+        if !self.config.enable_session_management {
+            return None;
+        }
+
+        let mut sessions = self.session_manager.write().await;
+
+        if let Some(session) = sessions.get_mut(session_id) {
+            session.last_activity = Instant::now();
+            Some(session.clone())
+        } else {
+            None
+        }
+    }
+
+    /// 更新会话数据
+    pub async fn update_session_data(
+        &self,
+        session_id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<()> {
+        if !self.config.enable_session_management {
+            return Ok(());
+        }
+
+        let mut sessions = self.session_manager.write().await;
+
+        if let Some(session) = sessions.get_mut(session_id) {
+            session.last_activity = Instant::now();
+            session.data.insert(key.to_string(), value.to_string());
+            Ok(())
+        } else {
+            Err(Error::SessionError("会话不存在".to_string()))
+        }
+    }
+
+    /// 删除会话
+    pub async fn delete_session(&self, session_id: &str) -> Result<()> {
+        if !self.config.enable_session_management {
+            return Ok(());
+        }
+
+        let mut sessions = self.session_manager.write().await;
+
+        if sessions.remove(session_id).is_some() {
+            Ok(())
+        } else {
+            Err(Error::SessionError("会话不存在".to_string()))
+        }
+    }
+
+    /// 清理过期会话
+    pub async fn cleanup_sessions(&self, max_age_secs: u64) {
+        if !self.config.enable_session_management {
+            return;
+        }
+
+        let mut sessions = self.session_manager.write().await;
+        let now = Instant::now();
+
+        // 收集过期会话的 ID
+        let expired_sessions: Vec<String> = sessions
+            .iter()
+            .filter(|(_, session)| {
+                now.duration_since(session.last_activity).as_secs() > max_age_secs
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        // 移除过期会话
+        for id in expired_sessions {
+            sessions.remove(&id);
+        }
+    }
+
+    /// 获取连接池配置
+    pub fn get_config(&self) -> ConnectionConfig {
+        self.config.clone()
+    }
+
+    /// 获取连接池统计信息
+    pub async fn get_pool_stats(&self) -> ConnectionPoolStats {
+        if !self.config.enable_connection_pooling {
+            return ConnectionPoolStats::default();
+        }
+
+        let pool = self.pool.read().await;
+        let sessions = self.session_manager.read().await;
+
+        let mut idle_count = 0;
+        let mut in_use_count = 0;
+        let mut validating_count = 0;
+        let mut closed_count = 0;
+
+        for conn in pool.iter() {
+            match conn.state {
+                ConnectionState::Idle => idle_count += 1,
+                ConnectionState::InUse => in_use_count += 1,
+                ConnectionState::Validating => validating_count += 1,
+                ConnectionState::Closed => closed_count += 1,
+            }
+        }
+
+        ConnectionPoolStats {
+            total_connections: pool.len(),
+            idle_connections: idle_count,
+            in_use_connections: in_use_count,
+            validating_connections: validating_count,
+            closed_connections: closed_count,
+            total_sessions: sessions.len(),
+            max_connections: self.config.max_connections,
+            min_connections: self.config.min_connections,
+        }
+    }
+}
+
+/// 连接池统计信息
+#[derive(Debug, Clone, Default)]
+pub struct ConnectionPoolStats {
+    /// 总连接数
+    pub total_connections: usize,
+    /// 空闲连接数
+    pub idle_connections: usize,
+    /// 使用中的连接数
+    pub in_use_connections: usize,
+    /// 验证中的连接数
+    pub validating_connections: usize,
+    /// 已关闭的连接数
+    pub closed_connections: usize,
+    /// 总会话数
+    pub total_sessions: usize,
+    /// 最大连接数
+    pub max_connections: usize,
+    /// 最小连接数
+    pub min_connections: usize,
+}
+
+/// 增强的 Arroyo 客户端，支持连接池和会话管理
+#[derive(Debug, Clone)]
+pub struct PooledArroyoClient {
+    /// 基础 URL
+    pub(crate) base_url: String,
+    /// 连接池
+    pub(crate) pool: ConnectionPool,
+    /// 当前会话 ID
+    pub(crate) session_id: Option<String>,
+}
+
+impl PooledArroyoClient {
+    /// 创建新的 Arroyo 客户端
+    pub fn new(base_url: impl Into<String>, config: Option<ConnectionConfig>) -> Result<Self> {
+        let base_url = base_url.into();
+        let config = config.unwrap_or_default();
+
+        let pool = ConnectionPool::new(&base_url, config);
+
+        Ok(Self {
+            base_url,
+            pool,
+            session_id: None,
+        })
+    }
+
+    /// 创建会话
+    pub async fn create_session(&mut self, user_id: Option<String>) -> String {
+        let session_id = self.pool.create_session(user_id).await;
+        self.session_id = Some(session_id.clone());
+        session_id
+    }
+
+    /// 设置会话 ID
+    pub fn set_session_id(&mut self, session_id: impl Into<String>) {
+        self.session_id = Some(session_id.into());
+    }
+
+    /// 获取会话信息
+    pub async fn get_session_info(&self) -> Option<SessionInfo> {
+        match &self.session_id {
+            Some(id) => self.pool.get_session(id).await,
+            None => None,
+        }
+    }
+
+    /// 更新会话数据
+    pub async fn update_session_data(&self, key: &str, value: &str) -> Result<()> {
+        match &self.session_id {
+            Some(id) => self.pool.update_session_data(id, key, value).await,
+            None => Err(Error::SessionError("未设置会话 ID".to_string())),
+        }
+    }
+
+    /// 关闭会话
+    pub async fn close_session(&mut self) -> Result<()> {
+        match &self.session_id {
+            Some(id) => {
+                let result = self.pool.delete_session(id).await;
+                self.session_id = None;
+                result
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// 获取连接池统计信息
+    pub async fn get_pool_stats(&self) -> ConnectionPoolStats {
+        self.pool.get_pool_stats().await
+    }
+
+    /// 发送 GET 请求
+    pub async fn get(&self, path: &str) -> Result<Response> {
+        let client = self.pool.get_connection().await?;
+
+        let url = format!("{}{}", self.base_url, path);
+
+        let mut builder = client.get(&url);
+
+        // 如果有会话 ID，添加到请求头
+        if let Some(session_id) = &self.session_id {
+            builder = builder.header("X-Session-ID", session_id);
+        }
+
+        let response = builder
+            .send()
+            .await
+            .map_err(|e| Error::RequestError(e.to_string()))?;
+
+        // 释放连接
+        self.pool.release_connection(&client).await;
+
+        Ok(response)
+    }
+
+    /// 发送 POST 请求
+    pub async fn post<T: serde::Serialize + ?Sized>(
+        &self,
+        path: &str,
+        json: &T,
+    ) -> Result<Response> {
+        let client = self.pool.get_connection().await?;
+
+        let url = format!("{}{}", self.base_url, path);
+
+        let mut builder = client.post(&url);
+
+        // 如果有会话 ID，添加到请求头
+        if let Some(session_id) = &self.session_id {
+            builder = builder.header("X-Session-ID", session_id);
+        }
+
+        let response = builder
+            .json(json)
+            .send()
+            .await
+            .map_err(|e| Error::RequestError(e.to_string()))?;
+
+        // 释放连接
+        self.pool.release_connection(&client).await;
+
+        Ok(response)
+    }
+
+    /// 发送 PUT 请求
+    pub async fn put<T: serde::Serialize + ?Sized>(
+        &self,
+        path: &str,
+        json: &T,
+    ) -> Result<Response> {
+        let client = self.pool.get_connection().await?;
+
+        let url = format!("{}{}", self.base_url, path);
+
+        let mut builder = client.put(&url);
+
+        // 如果有会话 ID，添加到请求头
+        if let Some(session_id) = &self.session_id {
+            builder = builder.header("X-Session-ID", session_id);
+        }
+
+        let response = builder
+            .json(json)
+            .send()
+            .await
+            .map_err(|e| Error::RequestError(e.to_string()))?;
+
+        // 释放连接
+        self.pool.release_connection(&client).await;
+
+        Ok(response)
+    }
+
+    /// 发送 DELETE 请求
+    pub async fn delete(&self, path: &str) -> Result<Response> {
+        let client = self.pool.get_connection().await?;
+
+        let url = format!("{}{}", self.base_url, path);
+
+        let mut builder = client.delete(&url);
+
+        // 如果有会话 ID，添加到请求头
+        if let Some(session_id) = &self.session_id {
+            builder = builder.header("X-Session-ID", session_id);
+        }
+
+        let response = builder
+            .send()
+            .await
+            .map_err(|e| Error::RequestError(e.to_string()))?;
+
+        // 释放连接
+        self.pool.release_connection(&client).await;
+
+        Ok(response)
+    }
+
+    /// 处理 API 响应
+    pub async fn handle_response<T: DeserializeOwned>(&self, response: Response) -> Result<T> {
+        match response.status() {
+            StatusCode::OK | StatusCode::CREATED => {
+                response
+                    .json::<T>()
+                    .await
+                    .map_err(|e| Error::DeserializationError(e.to_string()))
+            }
+            status => {
+                let error_text = response.text().await.unwrap_or_default();
+                Err(Error::ApiError(status.as_u16(), error_text))
+            }
+        }
+    }
+
+    /// 处理无返回值的 API 响应
+    pub async fn handle_empty_response(&self, response: Response) -> Result<()> {
+        match response.status() {
+            StatusCode::OK | StatusCode::CREATED | StatusCode::NO_CONTENT => Ok(()),
+            status => {
+                let error_text = response.text().await.unwrap_or_default();
+                Err(Error::ApiError(status.as_u16(), error_text))
+            }
+        }
+    }
+}

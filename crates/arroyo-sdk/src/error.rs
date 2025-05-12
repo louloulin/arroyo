@@ -22,6 +22,12 @@ pub enum Error {
     DecompressionError(String),
     /// 无效的压缩类型
     InvalidCompressionType(String),
+    /// 会话错误
+    SessionError(String),
+    /// 连接错误
+    ConnectionError(String),
+    /// 请求错误
+    RequestError(String),
     /// 其他错误
     Other(String),
 }
@@ -37,6 +43,9 @@ impl fmt::Display for Error {
             Error::CompressionError(message) => write!(f, "Compression error: {}", message),
             Error::DecompressionError(message) => write!(f, "Decompression error: {}", message),
             Error::InvalidCompressionType(message) => write!(f, "Invalid compression type: {}", message),
+            Error::SessionError(message) => write!(f, "Session error: {}", message),
+            Error::ConnectionError(message) => write!(f, "Connection error: {}", message),
+            Error::RequestError(message) => write!(f, "Request error: {}", message),
             Error::Other(message) => write!(f, "Error: {}", message),
         }
     }
