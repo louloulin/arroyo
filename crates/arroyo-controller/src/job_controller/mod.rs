@@ -11,7 +11,7 @@ use arroyo_rpc::grpc::rpc::{
     worker_grpc_client::WorkerGrpcClient, CheckpointReq, CommitReq, JobFinishedReq, LabelPair,
     LoadCompactedDataReq, MetricsReq, StopExecutionReq, StopMode, TaskCheckpointEventType,
 };
-use arroyo_state::{BackingStore, StateBackend};
+use arroyo_state::BackingStore;
 use arroyo_types::{to_micros, WorkerId};
 use cornucopia_async::DatabaseSource;
 use rand::{rng, Rng};
@@ -359,7 +359,7 @@ impl RunningJobModel {
             &checkpoint_id,
             &organization_id,
             &*self.job_id,
-            &StateBackend::name().to_string(),
+            &arroyo_state::parquet::ParquetBackend.name().to_string(),
             &(self.epoch as i32),
             &(self.min_epoch as i32),
             &OffsetDateTime::now_utc(),
@@ -902,7 +902,8 @@ impl JobController {
         let cur_epoch = self.model.epoch;
 
         tokio::spawn(async move {
-            let checkpoint = StateBackend::load_checkpoint_metadata(&job_id, cur_epoch).await?;
+            let state_backend = arroyo_state::parquet::ParquetBackend;
+            let checkpoint = state_backend.load_checkpoint_metadata(&job_id, cur_epoch).await?;
 
             controller_queries::execute_mark_compacting(
                 &db.client().await?,
@@ -912,7 +913,7 @@ impl JobController {
             )
             .await?;
 
-            StateBackend::cleanup_checkpoint(checkpoint, min_epoch, new_min).await?;
+            state_backend.cleanup_checkpoint(checkpoint, new_min, min_epoch).await?;
 
             controller_queries::execute_mark_checkpoints_compacted(
                 &db.client().await?,

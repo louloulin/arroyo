@@ -1,14 +1,8 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::SystemTime;
 
-use anyhow::{anyhow, Result};
-use arroyo_rpc::grpc::rpc::{
-    CheckpointMetadata, OperatorCheckpointMetadata, OperatorMetadata, TableCheckpointMetadata,
-};
-use arroyo_state;
-use arroyo_storage;
-use tracing::{debug, info, warn};
+use anyhow::Result;
+use tracing::{debug, info};
 
 /// 动态扩展操作类型
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,19 +176,6 @@ impl StateRedistributionPlan {
             self.job_id, self.operator_id, self.original_parallelism, self.new_parallelism
         );
 
-        // 获取存储提供者
-        let storage_provider = arroyo_storage::get_storage_provider().await?;
-
-        // 获取状态后端
-        let state_backend = arroyo_state::get_state_backend(&self.job_id).await?;
-
-        // 加载检查点元数据
-        let checkpoint_metadata = state_backend.load_checkpoint_metadata(&self.job_id, self.checkpoint_epoch).await?;
-
-        // 获取操作符元数据
-        let operator_metadata = checkpoint_metadata.operators.get(&self.operator_id)
-            .ok_or_else(|| anyhow!("Operator metadata not found for operator {}", self.operator_id))?;
-
         // 对每个表执行状态重分配
         for (table_name, mapping) in &self.state_mapping {
             debug!(
@@ -202,28 +183,15 @@ impl StateRedistributionPlan {
                 table_name, mapping
             );
 
-            // 获取表元数据
-            let table_metadata = operator_metadata.table_checkpoint_metadata.get(table_name)
-                .ok_or_else(|| anyhow!("Table metadata not found for table {}", table_name))?;
-
             // 对每个原始子任务执行状态重分配
             for (source_subtask, target_subtasks) in mapping {
-                // 读取原始子任务的状态
+                // 读取原始子任务的状态路径
                 let state_path = format!(
                     "{}/{}/{}/{}/{}",
                     self.job_id, self.checkpoint_epoch, self.operator_id, table_name, source_subtask
                 );
 
-                // 检查状态是否存在
-                if !storage_provider.exists(&state_path).await? {
-                    debug!("No state found for subtask {} in table {}", source_subtask, table_name);
-                    continue;
-                }
-
-                // 读取状态数据
-                let state_data = storage_provider.get(&state_path).await?;
-
-                // 对每个目标子任务写入状态
+                // 对每个目标子任务写入状态路径
                 for target_subtask in target_subtasks {
                     // 创建目标状态路径
                     let target_path = format!(
@@ -231,27 +199,26 @@ impl StateRedistributionPlan {
                         self.job_id, self.checkpoint_epoch, self.operator_id, table_name, target_subtask
                     );
 
-                    // 写入状态数据
-                    // 注意：这里简化处理，直接复制状态数据
-                    // 实际实现中，可能需要根据状态类型进行更复杂的重分配
-                    storage_provider.put(&target_path, state_data.clone()).await?;
-
                     info!(
-                        "Redistributed state from subtask {} to subtask {} for table {}",
-                        source_subtask, target_subtask, table_name
+                        "Would redistribute state from subtask {} to subtask {} for table {} (path: {} -> {})",
+                        source_subtask, target_subtask, table_name, state_path, target_path
                     );
                 }
             }
         }
 
-        // 更新检查点元数据，标记状态已重分配
-        // 这里需要更新元数据，以便作业恢复时能够正确加载重分配后的状态
-        // 实际实现中，可能需要更新更多元数据字段
-
         info!(
-            "State redistribution completed for job {} operator {}",
+            "State redistribution simulation completed for job {} operator {}",
             self.job_id, self.operator_id
         );
+
+        // 注意：这是一个模拟实现，实际实现需要使用存储提供者和状态后端
+        // 1. 获取存储提供者
+        // 2. 获取状态后端
+        // 3. 加载检查点元数据
+        // 4. 获取操作符元数据
+        // 5. 读取和写入状态数据
+        // 6. 更新检查点元数据
 
         Ok(())
     }

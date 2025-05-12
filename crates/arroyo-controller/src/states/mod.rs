@@ -208,6 +208,7 @@ impl TransitionTo<Recovering> for Running {
     }
 }
 impl TransitionTo<Rescaling> for Running {}
+impl TransitionTo<Running> for Rescaling {}
 
 impl TransitionTo<Scheduling> for Rescaling {
     fn update_status(&self) -> TransitionFn {

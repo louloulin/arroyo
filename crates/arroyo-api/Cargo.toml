@@ -34,7 +34,7 @@ petgraph = {workspace = true, features = ["serde-1"]}
 http = "1"
 tower-http = { workspace = true, features = ["trace", "fs", "cors", "validate-request", "auth", "compression-zstd"]}
 axum = {workspace = true, features = ["tokio", "macros"]}
-axum-extra = { version = "0.9", features = ["typed-header"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
 thiserror = "2"
 utoipa = { workspace = true }
 utoipa-swagger-ui = { version = "7", features = ["axum"] }

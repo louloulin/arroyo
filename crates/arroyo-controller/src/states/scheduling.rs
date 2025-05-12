@@ -19,7 +19,7 @@ use arroyo_rpc::grpc::api;
 use arroyo_state::{
     committing_state::CommittingState,
     tables::{global_keyed_map::GlobalKeyedTable, ErasedTable},
-    BackingStore, StateBackend,
+    BackingStore,
 };
 
 use crate::job_controller::job_metrics::JobMetrics;
@@ -348,7 +348,8 @@ impl State for Scheduling {
             needs_commits,
         }) = checkpoint_info.clone()
         {
-            let mut metadata = StateBackend::load_checkpoint_metadata(&ctx.config.id, epoch)
+            let state_backend = arroyo_state::parquet::ParquetBackend;
+            let mut metadata = state_backend.load_checkpoint_metadata(&ctx.config.id, epoch)
                 .await
                 .map_err(|err| {
                     fatal(
@@ -357,7 +358,7 @@ impl State for Scheduling {
                     )
                 })?;
 
-            if let Err(e) = StateBackend::prepare_checkpoint_load(&metadata).await {
+            if let Err(e) = state_backend.prepare_checkpoint_load(&metadata).await {
                 return Err(ctx.retryable(self, "failed to prepare checkpoint for loading", e, 10));
             }
             metadata.min_epoch = min_epoch;
@@ -368,7 +369,7 @@ impl State for Scheduling {
                     HashMap::new();
                 for operator_id in &metadata.operator_ids {
                     let operator_metadata =
-                        StateBackend::load_operator_metadata(&ctx.config.id, operator_id, epoch)
+                        state_backend.load_operator_metadata(operator_id, &ctx.config.id, epoch)
                             .await
                             .map_err(|err| {
                                 fatal(
@@ -436,7 +437,7 @@ impl State for Scheduling {
                 }
                 committing_state = Some(CommittingState::new(id, commit_subtasks, committing_data));
             }
-            StateBackend::write_checkpoint_metadata(metadata)
+            state_backend.write_checkpoint_metadata(metadata)
                 .await
                 .map_err(|err| {
                     fatal(

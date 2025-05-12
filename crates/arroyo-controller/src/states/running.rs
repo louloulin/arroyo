@@ -7,7 +7,7 @@ use tracing::{error, info};
 
 use crate::states::finishing::Finishing;
 use crate::states::recovering::Recovering;
-use crate::states::rescaling::Rescaling;
+
 use crate::states::restarting::Restarting;
 use crate::states::{fatal, stop_if_desired_running};
 use crate::JobMessage;

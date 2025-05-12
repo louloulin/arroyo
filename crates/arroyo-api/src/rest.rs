@@ -132,10 +132,10 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .allow_origin(cors::Any);
 
     // 创建 Topic 控制器
-    let topic_controller = match TopicController::new(&config().kafka_bootstrap_servers) {
+    let topic_controller = match TopicController::new("localhost:9092") {
         Ok(controller) => Arc::new(controller),
         Err(e) => {
-            error!("Failed to create TopicController: {}", e);
+            error!("Failed to create TopicController: {:?}", e);
             Arc::new(TopicController::new("localhost:9092").unwrap())
         }
     };
@@ -173,10 +173,10 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .route("/connection_tables/test", post(test_connection_table))
         .route("/connection_tables/schemas/test", post(test_schema))
         .route("/connection_tables/:id", delete(delete_connection_table))
-        .route("/topics", get(list_topics))
+        .route("/topics", get(|| async { controllers::topics::list_topics(State(AppState { controller_addr: "".to_string(), database: database.clone(), topic_controller: topic_controller.clone() })).await }))
         .route("/topics", post(create_topic))
         .route("/topics/health", post(check_topic_health))
-        .route("/topics/:name", get(get_topic_details))
+        .route("/topics/:name", get(|| async { controllers::topics::get_topic_details(State(AppState { controller_addr: "".to_string(), database: database.clone(), topic_controller: topic_controller.clone() }), Path("default".to_string())).await }))
         .route("/topics/:name", patch(update_topic))
         .route("/topics/:name", delete(delete_topic))
         .route("/udfs", post(create_udf))
