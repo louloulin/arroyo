@@ -35,6 +35,7 @@
 pub mod client;
 pub mod compression;
 pub mod consumer;
+pub mod consumer_group;
 pub mod error;
 pub mod models;
 pub mod connection;
@@ -48,7 +49,11 @@ pub mod util;
 // Re-export commonly used types
 pub use client::ArroyoClient;
 pub use compression::CompressionType;
-pub use consumer::{Consumer, ConsumerBuilder, ConsumerOptions};
+pub use consumer::{Consumer, ConsumerBuilder, ConsumerOptions, SubscriptionType};
+pub use consumer_group::{
+    ConsumerGroupManager, GroupMember, GroupState, HeartbeatResponse, JoinGroupResponse,
+    PartitionAssignmentStrategy, RebalanceResponse,
+};
 pub use error::{Error, Result};
 pub use producer::{
     AdaptiveBatchingConfig, AdaptiveBatchingStrategy, Producer, ProducerBuilder, ProducerOptions,

@@ -1,10 +1,13 @@
 use crate::client::ArroyoClient;
+use crate::consumer_group::{ConsumerGroupManager, PartitionAssignmentStrategy};
 use crate::error::{Error, Result};
 use crate::models::Message;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 
 /// 订阅类型
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +106,10 @@ pub struct ConsumerOptions {
     pub fetch_max_wait_ms: u64,
     /// 订阅类型
     pub subscription_type: Option<SubscriptionType>,
+    /// 启用消费者组
+    pub enable_consumer_group: bool,
+    /// 分区分配策略
+    pub partition_assignment_strategy: Option<PartitionAssignmentStrategy>,
     /// 其他配置选项
     pub config: Option<HashMap<String, String>>,
 }
@@ -120,6 +127,8 @@ impl Default for ConsumerOptions {
             max_partition_fetch_bytes: 1048576,
             fetch_max_wait_ms: 500,
             subscription_type: None,
+            enable_consumer_group: false,
+            partition_assignment_strategy: Some(PartitionAssignmentStrategy::RoundRobin),
             config: None,
         }
     }
@@ -207,6 +216,18 @@ impl ConsumerBuilder {
         self
     }
 
+    /// 启用消费者组
+    pub fn enable_consumer_group(mut self, enable: bool) -> Self {
+        self.options.enable_consumer_group = enable;
+        self
+    }
+
+    /// 设置分区分配策略
+    pub fn partition_assignment_strategy(mut self, strategy: PartitionAssignmentStrategy) -> Self {
+        self.options.partition_assignment_strategy = Some(strategy);
+        self
+    }
+
     /// 添加配置选项
     pub fn config(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         let config = self.options.config.get_or_insert_with(HashMap::new);
@@ -232,6 +253,8 @@ pub struct Consumer {
     options: ConsumerOptions,
     /// 订阅类型
     subscription_type: Option<SubscriptionType>,
+    /// 消费者组管理器
+    group_manager: Option<Arc<RwLock<crate::consumer_group::ConsumerGroupManager>>>,
 }
 
 impl Consumer {
@@ -253,12 +276,29 @@ impl Consumer {
             None => (Some(topic_str.clone()), vec![topic_str.clone()]),
         };
 
+        // 创建消费者组管理器（如果启用了消费者组）
+        let group_manager = if options.enable_consumer_group {
+            let manager = ConsumerGroupManager::new(
+                client.clone(),
+                options.group_id.clone(),
+                options.client_id.clone(),
+                options.session_timeout_ms,
+                options.heartbeat_interval_ms,
+                PartitionAssignmentStrategy::RoundRobin,
+            );
+
+            Some(Arc::new(RwLock::new(manager)))
+        } else {
+            None
+        };
+
         Self {
             client,
             topic: topic_opt,
             topics,
             options,
             subscription_type,
+            group_manager,
         }
     }
 
@@ -274,17 +314,113 @@ impl Consumer {
             SubscriptionType::Pattern(_) => (None, vec![]),
         };
 
+        // 创建消费者组管理器（如果启用了消费者组）
+        let group_manager = if options_with_subscription.enable_consumer_group {
+            let manager = ConsumerGroupManager::new(
+                client.clone(),
+                options_with_subscription.group_id.clone(),
+                options_with_subscription.client_id.clone(),
+                options_with_subscription.session_timeout_ms,
+                options_with_subscription.heartbeat_interval_ms,
+                PartitionAssignmentStrategy::RoundRobin,
+            );
+
+            Some(Arc::new(RwLock::new(manager)))
+        } else {
+            None
+        };
+
         Self {
             client,
             topic: topic_opt,
             topics,
             options: options_with_subscription,
             subscription_type: Some(subscription),
+            group_manager,
         }
     }
 
     /// 拉取消息
     pub async fn poll(&self, timeout: Duration) -> Result<Vec<Message>> {
+        // 如果启用了消费者组，确保消费者组管理器已启动
+        if self.options.enable_consumer_group {
+            if let Some(group_manager) = &self.group_manager {
+                let manager = group_manager.read().await;
+                if !manager.is_joined().await {
+                    // 启动消费者组管理器
+                    drop(manager);
+                    let mut manager = group_manager.write().await;
+
+                    // 设置订阅的 Topic
+                    let topics = match &self.subscription_type {
+                        Some(SubscriptionType::Single(t)) => vec![t.clone()],
+                        Some(SubscriptionType::Multiple(ts)) => ts.clone(),
+                        Some(SubscriptionType::Pattern(_)) => {
+                            let available_topics = self.list_topics().await?;
+                            self.subscription_type
+                                .as_ref()
+                                .unwrap()
+                                .get_matching_topics(&available_topics)
+                        }
+                        None => {
+                            if let Some(topic) = &self.topic {
+                                vec![topic.clone()]
+                            } else {
+                                vec![]
+                            }
+                        }
+                    };
+
+                    manager.subscribe(topics);
+                    manager.start().await?;
+                }
+            }
+        }
+
+        // 如果启用了消费者组，只拉取分配给该消费者的分区
+        if self.options.enable_consumer_group {
+            if let Some(group_manager) = &self.group_manager {
+                let manager = group_manager.read().await;
+                let assigned_partitions = manager.get_assigned_partitions().await;
+
+                if assigned_partitions.is_empty() {
+                    return Ok(vec![]);
+                }
+
+                // 从分配的分区中拉取消息
+                let mut all_messages = Vec::new();
+                for (topic, partitions) in assigned_partitions {
+                    let partitions_str = partitions
+                        .iter()
+                        .map(|p| p.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",");
+
+                    let response = self
+                        .client
+                        .client
+                        .get(&format!(
+                            "{}/api/topics/{}/messages",
+                            self.client.base_url, topic
+                        ))
+                        .query(&[
+                            ("group_id", &self.options.group_id),
+                            ("timeout_ms", &timeout.as_millis().to_string()),
+                            ("max_bytes", &self.options.max_partition_fetch_bytes.to_string()),
+                            ("partitions", &partitions_str),
+                        ])
+                        .send()
+                        .await?;
+
+                    let messages: Vec<Message> = self.client.handle_response(response).await?;
+                    all_messages.extend(messages);
+                }
+
+                return Ok(all_messages);
+            }
+        }
+
+        // 如果没有启用消费者组，使用普通的拉取逻辑
         // 检查是否有单个 Topic
         if let Some(topic) = &self.topic {
             let response = self
@@ -384,7 +520,8 @@ impl Consumer {
     }
 
     /// 批量提交偏移量
-    pub async fn commit_batch(&self, offsets: HashMap<u32, u64>) -> Result<()> {
+    pub async fn commit_batch(&self, topic: impl Into<String>, offsets: HashMap<u32, u64>) -> Result<()> {
+        let topic_str = topic.into();
         let mut batch = Vec::new();
         for (partition, offset) in offsets {
             batch.push(serde_json::json!({
@@ -399,7 +536,7 @@ impl Consumer {
             .client
             .post(&format!(
                 "{}/api/topics/{}/offsets/batch",
-                self.client.base_url, self.topic
+                self.client.base_url, topic_str
             ))
             .json(&batch)
             .send()
@@ -408,19 +545,77 @@ impl Consumer {
         self.client.handle_empty_response(response).await
     }
 
+    /// 批量提交单个 Topic 的偏移量（仅适用于单个 Topic 订阅）
+    pub async fn commit_batch_single(&self, offsets: HashMap<u32, u64>) -> Result<()> {
+        if let Some(topic) = &self.topic {
+            self.commit_batch(topic, offsets).await
+        } else {
+            Err(Error::ValidationError("No single topic available for this consumer".to_string()))
+        }
+    }
+
     /// 获取当前偏移量
-    pub async fn get_offsets(&self) -> Result<HashMap<u32, u64>> {
+    pub async fn get_offsets(&self, topic: impl Into<String>) -> Result<HashMap<u32, u64>> {
+        let topic_str = topic.into();
         let response = self
             .client
             .client
             .get(&format!(
                 "{}/api/topics/{}/offsets",
-                self.client.base_url, self.topic
+                self.client.base_url, topic_str
             ))
             .query(&[("group_id", &self.options.group_id)])
             .send()
             .await?;
 
         self.client.handle_response(response).await
+    }
+
+    /// 获取单个 Topic 的当前偏移量（仅适用于单个 Topic 订阅）
+    pub async fn get_offsets_single(&self) -> Result<HashMap<u32, u64>> {
+        if let Some(topic) = &self.topic {
+            self.get_offsets(topic).await
+        } else {
+            Err(Error::ValidationError("No single topic available for this consumer".to_string()))
+        }
+    }
+
+    /// 获取所有订阅 Topic 的当前偏移量
+    pub async fn get_all_offsets(&self) -> Result<HashMap<String, HashMap<u32, u64>>> {
+        let mut result = HashMap::new();
+
+        // 如果是单个 Topic 订阅
+        if let Some(topic) = &self.topic {
+            let offsets = self.get_offsets(topic).await?;
+            result.insert(topic.clone(), offsets);
+            return Ok(result);
+        }
+
+        // 如果是多个 Topic 或正则表达式订阅
+        let available_topics = self.list_topics().await?;
+        let matching_topics = match &self.subscription_type {
+            Some(subscription) => subscription.get_matching_topics(&available_topics),
+            None => vec![],
+        };
+
+        for topic in matching_topics {
+            let offsets = self.get_offsets(&topic).await?;
+            result.insert(topic, offsets);
+        }
+
+        Ok(result)
+    }
+
+    /// 关闭消费者
+    pub async fn close(&self) -> Result<()> {
+        // 如果启用了消费者组，停止消费者组管理器
+        if self.options.enable_consumer_group {
+            if let Some(group_manager) = &self.group_manager {
+                let manager = group_manager.read().await;
+                manager.stop().await?;
+            }
+        }
+
+        Ok(())
     }
 }
