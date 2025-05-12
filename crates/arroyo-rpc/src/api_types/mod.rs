@@ -1,3 +1,4 @@
+use alerts::*;
 use checkpoints::*;
 use connections::*;
 use metrics::*;
@@ -11,6 +12,7 @@ use udfs::*;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
+pub mod alerts;
 pub mod checkpoints;
 pub mod connections;
 pub mod metrics;
