@@ -310,31 +310,38 @@ async fn test_kafka() {
     .unwrap()
     .unwrap();
 
-    StateBackend::write_operator_checkpoint_metadata(OperatorCheckpointMetadata {
-        start_time: 0,
-        finish_time: 0,
-        table_checkpoint_metadata: single_item_hash_map("k", table_metadata),
-        table_configs: subtask_metadata.table_configs,
-        operator_metadata: Some(OperatorMetadata {
-            job_id: task_info.job_id.clone(),
-            operator_id: task_info.operator_id.clone(),
-            epoch: 1,
-            min_watermark: Some(0),
-            max_watermark: Some(0),
-            parallelism: 1,
-        }),
-    })
+    let backend = ParquetBackend::new();
+    StateBackend::write_operator_checkpoint_metadata(
+        &backend,
+        OperatorCheckpointMetadata {
+            start_time: 0,
+            finish_time: 0,
+            table_checkpoint_metadata: single_item_hash_map("k", table_metadata),
+            table_configs: subtask_metadata.table_configs,
+            operator_metadata: Some(OperatorMetadata {
+                job_id: task_info.job_id.clone(),
+                operator_id: task_info.operator_id.clone(),
+                epoch: 1,
+                min_watermark: Some(0),
+                max_watermark: Some(0),
+                parallelism: 1,
+            }),
+        },
+    )
     .await
     .unwrap();
 
-    StateBackend::write_checkpoint_metadata(CheckpointMetadata {
-        job_id: task_info.job_id.clone(),
-        epoch: 1,
-        min_epoch: 1,
-        start_time: 0,
-        finish_time: 0,
-        operator_ids: vec![task_info.operator_id.clone()],
-    })
+    StateBackend::write_checkpoint_metadata(
+        &backend,
+        CheckpointMetadata {
+            job_id: task_info.job_id.clone(),
+            epoch: 1,
+            min_epoch: 1,
+            start_time: 0,
+            finish_time: 0,
+            operator_ids: vec![task_info.operator_id.clone()],
+        },
+    )
     .await
     .unwrap();
 
