@@ -37,12 +37,14 @@ pub mod compression;
 pub mod consumer;
 pub mod consumer_group;
 pub mod error;
+pub mod failover;
 pub mod flow_control;
 pub mod models;
 pub mod connection;
 pub mod job;
 pub mod pipeline;
 pub mod producer;
+pub mod retry;
 pub mod sql;
 pub mod topic;
 pub mod util;
@@ -60,8 +62,10 @@ pub use consumer_group::{
     PartitionAssignmentStrategy, RebalanceResponse,
 };
 pub use error::{Error, Result};
+pub use failover::{FailoverConfig, FailoverManager, FailoverState};
 pub use producer::{
     AdaptiveBatchingConfig, AdaptiveBatchingStrategy, Producer, ProducerBuilder, ProducerOptions,
     SendCallback, SendResult, Transaction, TransactionOptions, TransactionResult, TransactionState,
 };
+pub use retry::{RetryConfig, RetryStrategy, RetryableErrorType};
 pub use topic::{TopicBuilder, TopicOptions};

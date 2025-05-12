@@ -1,11 +1,13 @@
 use crate::error::{Error, Result};
+use crate::failover::{FailoverConfig, FailoverManager, FailoverState};
+use crate::retry::{RetryConfig, retry_async};
 use reqwest::{Client, ClientBuilder, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
-use tracing::error;
+use tracing::{debug, error, info, warn};
 
 /// 连接状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +45,10 @@ pub struct ConnectionConfig {
     pub enable_connection_pooling: bool,
     /// 是否启用会话管理
     pub enable_session_management: bool,
+    /// 重试配置
+    pub retry_config: Option<crate::retry::RetryConfig>,
+    /// 故障转移配置
+    pub failover_config: Option<crate::failover::FailoverConfig>,
 }
 
 impl Default for ConnectionConfig {
@@ -58,6 +64,8 @@ impl Default for ConnectionConfig {
             retry_interval_ms: 500,
             enable_connection_pooling: true,
             enable_session_management: true,
+            retry_config: None,
+            failover_config: None,
         }
     }
 }
@@ -508,7 +516,7 @@ pub struct ConnectionPoolStats {
     pub min_connections: usize,
 }
 
-/// 增强的 Arroyo 客户端，支持连接池和会话管理
+/// 增强的 Arroyo 客户端，支持连接池、会话管理、重试和故障转移
 #[derive(Debug, Clone)]
 pub struct PooledArroyoClient {
     /// 基础 URL
@@ -517,6 +525,10 @@ pub struct PooledArroyoClient {
     pub(crate) pool: ConnectionPool,
     /// 当前会话 ID
     pub(crate) session_id: Option<String>,
+    /// 重试管理器
+    pub(crate) retry_config: Option<crate::retry::RetryConfig>,
+    /// 故障转移管理器
+    pub(crate) failover_manager: Option<crate::failover::FailoverManager>,
 }
 
 impl PooledArroyoClient {
@@ -525,12 +537,25 @@ impl PooledArroyoClient {
         let base_url = base_url.into();
         let config = config.unwrap_or_default();
 
-        let pool = ConnectionPool::new(&base_url, config);
+        let pool = ConnectionPool::new(&base_url, config.clone());
+
+        // 创建故障转移管理器（如果配置了）
+        let failover_manager = if let Some(failover_config) = config.failover_config {
+            if failover_config.enabled && !failover_config.failover_targets.is_empty() {
+                Some(crate::failover::FailoverManager::new(&base_url, failover_config))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         Ok(Self {
             base_url,
             pool,
             session_id: None,
+            retry_config: config.retry_config,
+            failover_manager,
         })
     }
 
@@ -581,26 +606,132 @@ impl PooledArroyoClient {
 
     /// 发送 GET 请求
     pub async fn get(&self, path: &str) -> Result<Response> {
+        // 如果启用了故障转移，获取当前端点
+        let base_url = if let Some(failover) = &self.failover_manager {
+            failover.get_current_endpoint().await
+        } else {
+            self.base_url.clone()
+        };
+
+        // 获取连接
         let client = self.pool.get_connection().await?;
 
-        let url = format!("{}{}", self.base_url, path);
+        // 构建 URL
+        let url = format!("{}{}", base_url, path);
 
-        let mut builder = client.get(&url);
+        // 如果启用了重试，使用重试机制
+        if let Some(retry_config) = &self.retry_config {
+            let failover_manager = self.failover_manager.clone();
+            let session_id = self.session_id.clone();
+            let client_ref = &client;
+            let pool_ref = &self.pool;
 
-        // 如果有会话 ID，添加到请求头
-        if let Some(session_id) = &self.session_id {
-            builder = builder.header("X-Session-ID", session_id);
+            let result = crate::retry::retry_async(
+                || async {
+                    let mut builder = client_ref.get(&url);
+
+                    // 如果有会话 ID，添加到请求头
+                    if let Some(session_id) = &session_id {
+                        builder = builder.header("X-Session-ID", session_id);
+                    }
+
+                    let response = builder
+                        .send()
+                        .await
+                        .map_err(|e| Error::RequestError(e.to_string()))?;
+
+                    // 检查响应状态码，如果是服务器错误，转换为 ApiError
+                    if response.status().is_server_error() {
+                        return Err(Error::ApiError(
+                            response.status().as_u16(),
+                            response.text().await.unwrap_or_default(),
+                        ));
+                    }
+
+                    // 如果启用了故障转移，报告成功
+                    if let Some(failover) = &failover_manager {
+                        failover.report_success().await?;
+                    }
+
+                    Ok(response)
+                },
+                retry_config,
+            ).await;
+
+            // 释放连接
+            pool_ref.release_connection(client_ref).await;
+
+            // 处理结果
+            match result {
+                Ok(response) => Ok(response),
+                Err(error) => {
+                    // 如果启用了故障转移，尝试故障转移
+                    if let Some(failover) = &self.failover_manager {
+                        let should_failover = failover.report_failure(&error).await?;
+                        if should_failover {
+                            failover.perform_failover().await?;
+                            // 使用新的端点重试
+                            let client = self.pool.get_connection().await?;
+                            let new_url = format!("{}{}", failover.get_current_endpoint().await, path);
+
+                            let mut builder = client.get(&new_url);
+
+                            // 如果有会话 ID，添加到请求头
+                            if let Some(session_id) = &self.session_id {
+                                builder = builder.header("X-Session-ID", session_id);
+                            }
+
+                            let response = builder
+                                .send()
+                                .await
+                                .map_err(|e| Error::RequestError(e.to_string()))?;
+
+                            // 释放连接
+                            self.pool.release_connection(&client).await;
+
+                            return Ok(response);
+                        }
+                    }
+                    Err(error)
+                }
+            }
+        } else {
+            // 不使用重试机制
+            let mut builder = client.get(&url);
+
+            // 如果有会话 ID，添加到请求头
+            if let Some(session_id) = &self.session_id {
+                builder = builder.header("X-Session-ID", session_id);
+            }
+
+            let response = builder
+                .send()
+                .await
+                .map_err(|e| {
+                    // 如果启用了故障转移，报告失败
+                    if let Some(failover) = &self.failover_manager {
+                        let error = Error::RequestError(e.to_string());
+                        let _ = futures::executor::block_on(async {
+                            let should_failover = failover.report_failure(&error).await?;
+                            if should_failover {
+                                failover.perform_failover().await?;
+                            }
+                            Ok::<_, Error>(())
+                        });
+                    }
+                    Error::RequestError(e.to_string())
+                })?;
+
+            // 如果启用了故障转移，报告成功
+            if let Some(failover) = &self.failover_manager {
+                let _ = failover.report_success().await;
+            }
+
+            // 释放连接
+            self.pool.release_connection(&client).await;
+
+            Ok(response)
         }
-
-        let response = builder
-            .send()
-            .await
-            .map_err(|e| Error::RequestError(e.to_string()))?;
-
-        // 释放连接
-        self.pool.release_connection(&client).await;
-
-        Ok(response)
     }
 
     /// 发送 POST 请求
@@ -609,27 +740,136 @@ impl PooledArroyoClient {
         path: &str,
         json: &T,
     ) -> Result<Response> {
+        // 如果启用了故障转移，获取当前端点
+        let base_url = if let Some(failover) = &self.failover_manager {
+            failover.get_current_endpoint().await
+        } else {
+            self.base_url.clone()
+        };
+
+        // 获取连接
         let client = self.pool.get_connection().await?;
 
-        let url = format!("{}{}", self.base_url, path);
+        // 构建 URL
+        let url = format!("{}{}", base_url, path);
 
-        let mut builder = client.post(&url);
+        // 如果启用了重试，使用重试机制
+        if let Some(retry_config) = &self.retry_config {
+            let failover_manager = self.failover_manager.clone();
+            let session_id = self.session_id.clone();
+            let client_ref = &client;
+            let pool_ref = &self.pool;
+            let json_ref = json;
 
-        // 如果有会话 ID，添加到请求头
-        if let Some(session_id) = &self.session_id {
-            builder = builder.header("X-Session-ID", session_id);
+            let result = crate::retry::retry_async(
+                || async {
+                    let mut builder = client_ref.post(&url);
+
+                    // 如果有会话 ID，添加到请求头
+                    if let Some(session_id) = &session_id {
+                        builder = builder.header("X-Session-ID", session_id);
+                    }
+
+                    let response = builder
+                        .json(json_ref)
+                        .send()
+                        .await
+                        .map_err(|e| Error::RequestError(e.to_string()))?;
+
+                    // 检查响应状态码，如果是服务器错误，转换为 ApiError
+                    if response.status().is_server_error() {
+                        return Err(Error::ApiError(
+                            response.status().as_u16(),
+                            response.text().await.unwrap_or_default(),
+                        ));
+                    }
+
+                    // 如果启用了故障转移，报告成功
+                    if let Some(failover) = &failover_manager {
+                        failover.report_success().await?;
+                    }
+
+                    Ok(response)
+                },
+                retry_config,
+            ).await;
+
+            // 释放连接
+            pool_ref.release_connection(client_ref).await;
+
+            // 处理结果
+            match result {
+                Ok(response) => Ok(response),
+                Err(error) => {
+                    // 如果启用了故障转移，尝试故障转移
+                    if let Some(failover) = &self.failover_manager {
+                        let should_failover = failover.report_failure(&error).await?;
+                        if should_failover {
+                            failover.perform_failover().await?;
+                            // 使用新的端点重试
+                            let client = self.pool.get_connection().await?;
+                            let new_url = format!("{}{}", failover.get_current_endpoint().await, path);
+
+                            let mut builder = client.post(&new_url);
+
+                            // 如果有会话 ID，添加到请求头
+                            if let Some(session_id) = &self.session_id {
+                                builder = builder.header("X-Session-ID", session_id);
+                            }
+
+                            let response = builder
+                                .json(json)
+                                .send()
+                                .await
+                                .map_err(|e| Error::RequestError(e.to_string()))?;
+
+                            // 释放连接
+                            self.pool.release_connection(&client).await;
+
+                            return Ok(response);
+                        }
+                    }
+                    Err(error)
+                }
+            }
+        } else {
+            // 不使用重试机制
+            let mut builder = client.post(&url);
+
+            // 如果有会话 ID，添加到请求头
+            if let Some(session_id) = &self.session_id {
+                builder = builder.header("X-Session-ID", session_id);
+            }
+
+            let response = builder
+                .json(json)
+                .send()
+                .await
+                .map_err(|e| {
+                    // 如果启用了故障转移，报告失败
+                    if let Some(failover) = &self.failover_manager {
+                        let error = Error::RequestError(e.to_string());
+                        let _ = futures::executor::block_on(async {
+                            let should_failover = failover.report_failure(&error).await?;
+                            if should_failover {
+                                failover.perform_failover().await?;
+                            }
+                            Ok::<_, Error>(())
+                        });
+                    }
+                    Error::RequestError(e.to_string())
+                })?;
+
+            // 如果启用了故障转移，报告成功
+            if let Some(failover) = &self.failover_manager {
+                let _ = failover.report_success().await;
+            }
+
+            // 释放连接
+            self.pool.release_connection(&client).await;
+
+            Ok(response)
         }
-
-        let response = builder
-            .json(json)
-            .send()
-            .await
-            .map_err(|e| Error::RequestError(e.to_string()))?;
-
-        // 释放连接
-        self.pool.release_connection(&client).await;
-
-        Ok(response)
     }
 
     /// 发送 PUT 请求
@@ -638,51 +878,266 @@ impl PooledArroyoClient {
         path: &str,
         json: &T,
     ) -> Result<Response> {
+        // 如果启用了故障转移，获取当前端点
+        let base_url = if let Some(failover) = &self.failover_manager {
+            failover.get_current_endpoint().await
+        } else {
+            self.base_url.clone()
+        };
+
+        // 获取连接
         let client = self.pool.get_connection().await?;
 
-        let url = format!("{}{}", self.base_url, path);
+        // 构建 URL
+        let url = format!("{}{}", base_url, path);
 
-        let mut builder = client.put(&url);
+        // 如果启用了重试，使用重试机制
+        if let Some(retry_config) = &self.retry_config {
+            let failover_manager = self.failover_manager.clone();
+            let session_id = self.session_id.clone();
+            let client_ref = &client;
+            let pool_ref = &self.pool;
+            let json_ref = json;
 
-        // 如果有会话 ID，添加到请求头
-        if let Some(session_id) = &self.session_id {
-            builder = builder.header("X-Session-ID", session_id);
+            let result = crate::retry::retry_async(
+                || async {
+                    let mut builder = client_ref.put(&url);
+
+                    // 如果有会话 ID，添加到请求头
+                    if let Some(session_id) = &session_id {
+                        builder = builder.header("X-Session-ID", session_id);
+                    }
+
+                    let response = builder
+                        .json(json_ref)
+                        .send()
+                        .await
+                        .map_err(|e| Error::RequestError(e.to_string()))?;
+
+                    // 检查响应状态码，如果是服务器错误，转换为 ApiError
+                    if response.status().is_server_error() {
+                        return Err(Error::ApiError(
+                            response.status().as_u16(),
+                            response.text().await.unwrap_or_default(),
+                        ));
+                    }
+
+                    // 如果启用了故障转移，报告成功
+                    if let Some(failover) = &failover_manager {
+                        failover.report_success().await?;
+                    }
+
+                    Ok(response)
+                },
+                retry_config,
+            ).await;
+
+            // 释放连接
+            pool_ref.release_connection(client_ref).await;
+
+            // 处理结果
+            match result {
+                Ok(response) => Ok(response),
+                Err(error) => {
+                    // 如果启用了故障转移，尝试故障转移
+                    if let Some(failover) = &self.failover_manager {
+                        let should_failover = failover.report_failure(&error).await?;
+                        if should_failover {
+                            failover.perform_failover().await?;
+                            // 使用新的端点重试
+                            let client = self.pool.get_connection().await?;
+                            let new_url = format!("{}{}", failover.get_current_endpoint().await, path);
+
+                            let mut builder = client.put(&new_url);
+
+                            // 如果有会话 ID，添加到请求头
+                            if let Some(session_id) = &self.session_id {
+                                builder = builder.header("X-Session-ID", session_id);
+                            }
+
+                            let response = builder
+                                .json(json)
+                                .send()
+                                .await
+                                .map_err(|e| Error::RequestError(e.to_string()))?;
+
+                            // 释放连接
+                            self.pool.release_connection(&client).await;
+
+                            return Ok(response);
+                        }
+                    }
+                    Err(error)
+                }
+            }
+        } else {
+            // 不使用重试机制
+            let mut builder = client.put(&url);
+
+            // 如果有会话 ID，添加到请求头
+            if let Some(session_id) = &self.session_id {
+                builder = builder.header("X-Session-ID", session_id);
+            }
+
+            let response = builder
+                .json(json)
+                .send()
+                .await
+                .map_err(|e| {
+                    // 如果启用了故障转移，报告失败
+                    if let Some(failover) = &self.failover_manager {
+                        let error = Error::RequestError(e.to_string());
+                        let _ = futures::executor::block_on(async {
+                            let should_failover = failover.report_failure(&error).await?;
+                            if should_failover {
+                                failover.perform_failover().await?;
+                            }
+                            Ok::<_, Error>(())
+                        });
+                    }
+                    Error::RequestError(e.to_string())
+                })?;
+
+            // 如果启用了故障转移，报告成功
+            if let Some(failover) = &self.failover_manager {
+                let _ = failover.report_success().await;
+            }
+
+            // 释放连接
+            self.pool.release_connection(&client).await;
+
+            Ok(response)
         }
-
-        let response = builder
-            .json(json)
-            .send()
-            .await
-            .map_err(|e| Error::RequestError(e.to_string()))?;
-
-        // 释放连接
-        self.pool.release_connection(&client).await;
-
-        Ok(response)
     }
 
     /// 发送 DELETE 请求
     pub async fn delete(&self, path: &str) -> Result<Response> {
+        // 如果启用了故障转移，获取当前端点
+        let base_url = if let Some(failover) = &self.failover_manager {
+            failover.get_current_endpoint().await
+        } else {
+            self.base_url.clone()
+        };
+
+        // 获取连接
         let client = self.pool.get_connection().await?;
 
-        let url = format!("{}{}", self.base_url, path);
+        // 构建 URL
+        let url = format!("{}{}", base_url, path);
 
-        let mut builder = client.delete(&url);
+        // 如果启用了重试，使用重试机制
+        if let Some(retry_config) = &self.retry_config {
+            let failover_manager = self.failover_manager.clone();
+            let session_id = self.session_id.clone();
+            let client_ref = &client;
+            let pool_ref = &self.pool;
 
-        // 如果有会话 ID，添加到请求头
-        if let Some(session_id) = &self.session_id {
-            builder = builder.header("X-Session-ID", session_id);
+            let result = crate::retry::retry_async(
+                || async {
+                    let mut builder = client_ref.delete(&url);
+
+                    // 如果有会话 ID，添加到请求头
+                    if let Some(session_id) = &session_id {
+                        builder = builder.header("X-Session-ID", session_id);
+                    }
+
+                    let response = builder
+                        .send()
+                        .await
+                        .map_err(|e| Error::RequestError(e.to_string()))?;
+
+                    // 检查响应状态码，如果是服务器错误，转换为 ApiError
+                    if response.status().is_server_error() {
+                        return Err(Error::ApiError(
+                            response.status().as_u16(),
+                            response.text().await.unwrap_or_default(),
+                        ));
+                    }
+
+                    // 如果启用了故障转移，报告成功
+                    if let Some(failover) = &failover_manager {
+                        failover.report_success().await?;
+                    }
+
+                    Ok(response)
+                },
+                retry_config,
+            ).await;
+
+            // 释放连接
+            pool_ref.release_connection(client_ref).await;
+
+            // 处理结果
+            match result {
+                Ok(response) => Ok(response),
+                Err(error) => {
+                    // 如果启用了故障转移，尝试故障转移
+                    if let Some(failover) = &self.failover_manager {
+                        let should_failover = failover.report_failure(&error).await?;
+                        if should_failover {
+                            failover.perform_failover().await?;
+                            // 使用新的端点重试
+                            let client = self.pool.get_connection().await?;
+                            let new_url = format!("{}{}", failover.get_current_endpoint().await, path);
+
+                            let mut builder = client.delete(&new_url);
+
+                            // 如果有会话 ID，添加到请求头
+                            if let Some(session_id) = &self.session_id {
+                                builder = builder.header("X-Session-ID", session_id);
+                            }
+
+                            let response = builder
+                                .send()
+                                .await
+                                .map_err(|e| Error::RequestError(e.to_string()))?;
+
+                            // 释放连接
+                            self.pool.release_connection(&client).await;
+
+                            return Ok(response);
+                        }
+                    }
+                    Err(error)
+                }
+            }
+        } else {
+            // 不使用重试机制
+            let mut builder = client.delete(&url);
+
+            // 如果有会话 ID，添加到请求头
+            if let Some(session_id) = &self.session_id {
+                builder = builder.header("X-Session-ID", session_id);
+            }
+
+            let response = builder
+                .send()
+                .await
+                .map_err(|e| {
+                    // 如果启用了故障转移，报告失败
+                    if let Some(failover) = &self.failover_manager {
+                        let error = Error::RequestError(e.to_string());
+                        let _ = futures::executor::block_on(async {
+                            let should_failover = failover.report_failure(&error).await?;
+                            if should_failover {
+                                failover.perform_failover().await?;
+                            }
+                            Ok::<_, Error>(())
+                        });
+                    }
+                    Error::RequestError(e.to_string())
+                })?;
+
+            // 如果启用了故障转移，报告成功
+            if let Some(failover) = &self.failover_manager {
+                let _ = failover.report_success().await;
+            }
+
+            // 释放连接
+            self.pool.release_connection(&client).await;
+
+            Ok(response)
         }
-
-        let response = builder
-            .send()
-            .await
-            .map_err(|e| Error::RequestError(e.to_string()))?;
-
-        // 释放连接
-        self.pool.release_connection(&client).await;
-
-        Ok(response)
     }
 
     /// 处理 API 响应
