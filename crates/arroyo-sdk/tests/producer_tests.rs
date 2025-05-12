@@ -10,14 +10,14 @@ async fn create_mock_client(server: &mockito::Server) -> ArroyoClient {
 #[tokio::test]
 async fn test_sync_send() -> Result<()> {
     // 创建服务器
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
 
     // 设置模拟响应
     let _m = server.mock("POST", "/api/topics/test-topic/messages")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body("{}")
-        .create();
+        .create_async().await;
 
     let client = create_mock_client(&server).await;
     let producer = Producer::new(
@@ -46,14 +46,14 @@ async fn test_sync_send() -> Result<()> {
 #[tokio::test]
 async fn test_sync_send_with_headers() -> Result<()> {
     // 创建服务器
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
 
     // 设置模拟响应
     let _m = server.mock("POST", "/api/topics/test-topic/messages")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body("{}")
-        .create();
+        .create_async().await;
 
     let client = create_mock_client(&server).await;
     let producer = Producer::new(
@@ -85,14 +85,14 @@ async fn test_sync_send_with_headers() -> Result<()> {
 #[tokio::test]
 async fn test_async_send() -> Result<()> {
     // 创建服务器
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
 
     // 设置模拟响应
     let _m = server.mock("POST", "/api/topics/test-topic/messages")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body("{}")
-        .create();
+        .create_async().await;
 
     let client = create_mock_client(&server).await;
     let producer = Producer::new(
@@ -129,14 +129,14 @@ async fn test_async_send() -> Result<()> {
 #[tokio::test]
 async fn test_batch_send() -> Result<()> {
     // 创建服务器
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
 
     // 设置模拟响应
     let _m = server.mock("POST", "/api/topics/test-topic/messages/batch")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body("{}")
-        .create();
+        .create_async().await;
 
     let client = create_mock_client(&server).await;
     let producer = Producer::new(
@@ -181,14 +181,14 @@ async fn test_batch_send() -> Result<()> {
 #[tokio::test]
 async fn test_batch_send_async() -> Result<()> {
     // 创建服务器
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
 
     // 设置模拟响应
     let _m = server.mock("POST", "/api/topics/test-topic/messages/batch")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body("{}")
-        .create();
+        .create_async().await;
 
     let client = create_mock_client(&server).await;
     let producer = Producer::new(
