@@ -48,6 +48,8 @@ pub mod retry;
 pub mod sql;
 pub mod topic;
 pub mod util;
+pub mod cache;
+pub mod prefetch;
 
 // Re-export commonly used types
 pub use client::ArroyoClient;

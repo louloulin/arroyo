@@ -1,8 +1,11 @@
+use crate::cache::{CacheConfig, CacheKey, CacheStrategy, ClientCache};
 use crate::error::{Error, Result};
 use crate::failover::{FailoverConfig, FailoverManager, FailoverState};
+use crate::prefetch::{PrefetchConfig, PrefetchManager, PrefetchStrategy};
 use crate::retry::{RetryConfig, retry_async};
 use reqwest::{Client, ClientBuilder, Response, StatusCode};
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -49,6 +52,10 @@ pub struct ConnectionConfig {
     pub retry_config: Option<crate::retry::RetryConfig>,
     /// 故障转移配置
     pub failover_config: Option<crate::failover::FailoverConfig>,
+    /// 缓存配置
+    pub cache_config: Option<crate::cache::CacheConfig>,
+    /// 预取配置
+    pub prefetch_config: Option<crate::prefetch::PrefetchConfig>,
 }
 
 impl Default for ConnectionConfig {
@@ -66,6 +73,8 @@ impl Default for ConnectionConfig {
             enable_session_management: true,
             retry_config: None,
             failover_config: None,
+            cache_config: None,
+            prefetch_config: None,
         }
     }
 }
@@ -516,7 +525,7 @@ pub struct ConnectionPoolStats {
     pub min_connections: usize,
 }
 
-/// 增强的 Arroyo 客户端，支持连接池、会话管理、重试和故障转移
+/// 增强的 Arroyo 客户端，支持连接池、会话管理、重试、故障转移、缓存和预取
 #[derive(Debug, Clone)]
 pub struct PooledArroyoClient {
     /// 基础 URL
@@ -529,6 +538,10 @@ pub struct PooledArroyoClient {
     pub(crate) retry_config: Option<crate::retry::RetryConfig>,
     /// 故障转移管理器
     pub(crate) failover_manager: Option<crate::failover::FailoverManager>,
+    /// 缓存管理器
+    pub(crate) cache: Option<crate::cache::ClientCache>,
+    /// 预取管理器
+    pub(crate) prefetch_manager: Option<crate::prefetch::PrefetchManager>,
 }
 
 impl PooledArroyoClient {
@@ -550,13 +563,44 @@ impl PooledArroyoClient {
             None
         };
 
-        Ok(Self {
+        // 创建缓存管理器（如果配置了）
+        let cache = if let Some(cache_config) = config.cache_config {
+            if cache_config.enabled {
+                Some(crate::cache::ClientCache::new(cache_config))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // 创建预取管理器（如果配置了）
+        let prefetch_manager = if let Some(prefetch_config) = config.prefetch_config {
+            if prefetch_config.enabled {
+                Some(crate::prefetch::PrefetchManager::new(prefetch_config))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let client = Self {
             base_url,
             pool,
             session_id: None,
             retry_config: config.retry_config,
             failover_manager,
-        })
+            cache,
+            prefetch_manager,
+        };
+
+        // 如果启用了预取，启动预取处理循环
+        if client.prefetch_manager.is_some() && client.cache.is_some() {
+            client.start_prefetch_processing();
+        }
+
+        Ok(client)
     }
 
     /// 创建会话
@@ -606,6 +650,45 @@ impl PooledArroyoClient {
 
     /// 发送 GET 请求
     pub async fn get(&self, path: &str) -> Result<Response> {
+        // 检查缓存
+        if let Some(cache) = &self.cache {
+            // 创建缓存键
+            let cache_key = crate::cache::CacheKey {
+                method: "GET".to_string(),
+                path: path.to_string(),
+                query_params: None,
+                body: None,
+            };
+
+            // 尝试从缓存获取
+            if let Some(response) = cache.get_response(&cache_key).await {
+                // 如果启用了预取，记录访问
+                if let Some(prefetch) = &self.prefetch_manager {
+                    prefetch.record_access(path).await;
+
+                    // 预测并预取下一个可能的访问
+                    let predicted_paths = prefetch.predict_next_accesses(path).await;
+                    for predicted_path in predicted_paths {
+                        let prefetch_key = crate::cache::CacheKey {
+                            method: "GET".to_string(),
+                            path: predicted_path.clone(),
+                            query_params: None,
+                            body: None,
+                        };
+
+                        prefetch.add_to_queue(prefetch_key, 5).await;
+                    }
+                }
+
+                return Ok(response);
+            }
+        }
+
+        // 如果启用了预取，记录访问
+        if let Some(prefetch) = &self.prefetch_manager {
+            prefetch.record_access(path).await;
+        }
+
         // 如果启用了故障转移，获取当前端点
         let base_url = if let Some(failover) = &self.failover_manager {
             failover.get_current_endpoint().await
@@ -625,6 +708,7 @@ impl PooledArroyoClient {
             let session_id = self.session_id.clone();
             let client_ref = &client;
             let pool_ref = &self.pool;
+            let cache_ref = self.cache.clone();
 
             let result = crate::retry::retry_async(
                 || async {
@@ -651,6 +735,20 @@ impl PooledArroyoClient {
                     // 如果启用了故障转移，报告成功
                     if let Some(failover) = &failover_manager {
                         failover.report_success().await?;
+                    }
+
+                    // 如果启用了缓存，将响应添加到缓存
+                    if let Some(cache) = &cache_ref {
+                        // 创建缓存键
+                        let cache_key = crate::cache::CacheKey {
+                            method: "GET".to_string(),
+                            path: path.to_string(),
+                            query_params: None,
+                            body: None,
+                        };
+
+                        // 缓存响应
+                        let _ = cache.cache_response(cache_key, &response, None).await;
                     }
 
                     Ok(response)
@@ -689,6 +787,20 @@ impl PooledArroyoClient {
                             // 释放连接
                             self.pool.release_connection(&client).await;
 
+                            // 如果启用了缓存，将响应添加到缓存
+                            if let Some(cache) = &self.cache {
+                                // 创建缓存键
+                                let cache_key = crate::cache::CacheKey {
+                                    method: "GET".to_string(),
+                                    path: path.to_string(),
+                                    query_params: None,
+                                    body: None,
+                                };
+
+                                // 缓存响应
+                                let _ = cache.cache_response(cache_key, &response, None).await;
+                            }
+
                             return Ok(response);
                         }
                     }
@@ -725,6 +837,20 @@ impl PooledArroyoClient {
             // 如果启用了故障转移，报告成功
             if let Some(failover) = &self.failover_manager {
                 let _ = failover.report_success().await;
+            }
+
+            // 如果启用了缓存，将响应添加到缓存
+            if let Some(cache) = &self.cache {
+                // 创建缓存键
+                let cache_key = crate::cache::CacheKey {
+                    method: "GET".to_string(),
+                    path: path.to_string(),
+                    query_params: None,
+                    body: None,
+                };
+
+                // 缓存响应
+                let _ = cache.cache_response(cache_key, &response, None).await;
             }
 
             // 释放连接
@@ -1165,5 +1291,71 @@ impl PooledArroyoClient {
                 Err(Error::ApiError(status.as_u16(), error_text))
             }
         }
+    }
+
+    /// 处理预取请求
+    pub async fn process_prefetch(&self) -> Result<()> {
+        if let Some(prefetch_manager) = &self.prefetch_manager {
+            if let Some(cache) = &self.cache {
+                // 获取下一个预取项
+                if let Some(key) = prefetch_manager.get_next_item().await {
+                    // 检查是否已在缓存中
+                    if cache.get_response(&key).await.is_some() {
+                        // 已在缓存中，标记为完成
+                        prefetch_manager.complete_item(&key, true).await;
+                        return Ok(());
+                    }
+
+                    // 执行预取
+                    let result = match key.method.as_str() {
+                        "GET" => self.get(&key.path).await,
+                        // 其他方法可以根据需要添加
+                        _ => return Ok(()),
+                    };
+
+                    // 标记预取完成
+                    prefetch_manager.complete_item(&key, result.is_ok()).await;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 启动预取处理循环
+    pub fn start_prefetch_processing(&self) {
+        if let Some(prefetch_manager) = &self.prefetch_manager {
+            if let Some(cache) = &self.cache {
+                let client = self.clone();
+
+                tokio::spawn(async move {
+                    loop {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+                        if let Err(e) = client.process_prefetch().await {
+                            tracing::warn!("预取处理错误: {}", e);
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    /// 清除缓存
+    pub async fn clear_cache(&self) -> Result<()> {
+        if let Some(cache) = &self.cache {
+            cache.clear().await?;
+        }
+
+        Ok(())
+    }
+
+    /// 清除特定路径的缓存
+    pub async fn clear_cache_path(&self, path_prefix: &str) -> Result<()> {
+        if let Some(cache) = &self.cache {
+            cache.clear_path(path_prefix).await?;
+        }
+
+        Ok(())
     }
 }
