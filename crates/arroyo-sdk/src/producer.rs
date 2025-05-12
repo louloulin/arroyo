@@ -1,15 +1,14 @@
 use crate::client::ArroyoClient;
 use crate::compression::{create_compressor, Compressor, CompressionType};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::models::Message;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::future::Future;
-use std::pin::Pin;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::{oneshot, Mutex as TokioMutex};
+use tokio::sync::Mutex as TokioMutex;
+use lru::LruCache;
 
 /// 发送结果
 #[derive(Debug, Clone)]
@@ -30,6 +29,209 @@ pub struct SendResult {
 
 /// 回调函数类型
 pub type SendCallback = Box<dyn FnOnce(SendResult) + Send + 'static>;
+
+/// 消息 ID，用于幂等性发送
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct MessageId {
+    /// 生产者 ID
+    pub producer_id: String,
+    /// 序列号
+    pub sequence_number: u64,
+    /// 消息哈希
+    pub message_hash: u64,
+}
+
+impl MessageId {
+    /// 创建新的消息 ID
+    pub fn new(producer_id: impl Into<String>, sequence_number: u64, message_hash: u64) -> Self {
+        Self {
+            producer_id: producer_id.into(),
+            sequence_number,
+            message_hash,
+        }
+    }
+
+    /// 计算消息哈希
+    pub fn calculate_message_hash(key: Option<&[u8]>, value: &[u8]) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        if let Some(k) = key {
+            k.hash(&mut hasher);
+        }
+        value.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+/// 事务状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransactionState {
+    /// 未初始化
+    Uninitialized,
+    /// 已初始化
+    Initialized,
+    /// 已开始
+    Started,
+    /// 已提交
+    Committed,
+    /// 已中止
+    Aborted,
+    /// 已关闭
+    Closed,
+}
+
+/// 事务操作结果
+#[derive(Debug, Clone)]
+pub struct TransactionResult {
+    /// 操作是否成功
+    pub success: bool,
+    /// 错误信息（如果操作失败）
+    pub error: Option<String>,
+    /// 操作耗时（毫秒）
+    pub latency_ms: u64,
+    /// 事务 ID
+    pub transaction_id: String,
+}
+
+/// 事务配置选项
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionOptions {
+    /// 事务 ID 前缀
+    pub transaction_id_prefix: String,
+    /// 事务超时（毫秒）
+    pub transaction_timeout_ms: u64,
+    /// 事务重试次数
+    pub transaction_retries: u32,
+    /// 事务重试间隔（毫秒）
+    pub transaction_retry_backoff_ms: u64,
+}
+
+impl Default for TransactionOptions {
+    fn default() -> Self {
+        Self {
+            transaction_id_prefix: "arroyo-tx".to_string(),
+            transaction_timeout_ms: 60000, // 默认 60 秒超时
+            transaction_retries: 3,
+            transaction_retry_backoff_ms: 100,
+        }
+    }
+}
+
+/// 事务
+#[derive(Debug, Clone)]
+pub struct Transaction {
+    /// 事务 ID
+    pub id: String,
+    /// 事务状态
+    pub state: TransactionState,
+    /// 事务开始时间
+    pub start_time: Option<SystemTime>,
+    /// 事务结束时间
+    pub end_time: Option<SystemTime>,
+    /// 缓冲的消息
+    pub buffered_messages: Vec<Message>,
+    /// 事务配置
+    pub options: TransactionOptions,
+}
+
+impl Transaction {
+    /// 创建新的事务
+    pub fn new(id: impl Into<String>, options: TransactionOptions) -> Self {
+        Self {
+            id: id.into(),
+            state: TransactionState::Uninitialized,
+            start_time: None,
+            end_time: None,
+            buffered_messages: Vec::new(),
+            options,
+        }
+    }
+
+    /// 初始化事务
+    pub fn initialize(&mut self) {
+        if self.state == TransactionState::Uninitialized {
+            self.state = TransactionState::Initialized;
+        }
+    }
+
+    /// 开始事务
+    pub fn begin(&mut self) {
+        if self.state == TransactionState::Initialized {
+            self.state = TransactionState::Started;
+            self.start_time = Some(SystemTime::now());
+        }
+    }
+
+    /// 添加消息到事务
+    pub fn add_message(&mut self, message: Message) {
+        if self.state == TransactionState::Started {
+            self.buffered_messages.push(message);
+        }
+    }
+
+    /// 提交事务
+    pub fn commit(&mut self) {
+        if self.state == TransactionState::Started {
+            self.state = TransactionState::Committed;
+            self.end_time = Some(SystemTime::now());
+        }
+    }
+
+    /// 中止事务
+    pub fn abort(&mut self) {
+        if self.state == TransactionState::Started {
+            self.state = TransactionState::Aborted;
+            self.end_time = Some(SystemTime::now());
+            self.buffered_messages.clear();
+        }
+    }
+
+    /// 关闭事务
+    pub fn close(&mut self) {
+        if self.state == TransactionState::Committed || self.state == TransactionState::Aborted {
+            self.state = TransactionState::Closed;
+        }
+    }
+
+    /// 获取事务持续时间（毫秒）
+    pub fn duration_ms(&self) -> Option<u64> {
+        match (self.start_time, self.end_time) {
+            (Some(start), Some(end)) => {
+                end.duration_since(start).ok().map(|d| d.as_millis() as u64)
+            }
+            _ => None,
+        }
+    }
+
+    /// 检查事务是否已超时
+    pub fn is_timed_out(&self) -> bool {
+        if let Some(start) = self.start_time {
+            if self.state == TransactionState::Started {
+                if let Ok(elapsed) = SystemTime::now().duration_since(start) {
+                    return elapsed.as_millis() as u64 > self.options.transaction_timeout_ms;
+                }
+            }
+        }
+        false
+    }
+
+    /// 获取缓冲的消息数量
+    pub fn message_count(&self) -> usize {
+        self.buffered_messages.len()
+    }
+
+    /// 清空缓冲的消息
+    pub fn clear_messages(&mut self) {
+        self.buffered_messages.clear();
+    }
+
+    /// 获取缓冲的消息
+    pub fn take_messages(&mut self) -> Vec<Message> {
+        std::mem::take(&mut self.buffered_messages)
+    }
+}
 
 /// 批处理统计信息
 #[derive(Debug, Clone)]
@@ -103,6 +305,30 @@ impl Default for AdaptiveBatchingConfig {
     }
 }
 
+/// 幂等性配置选项
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdempotenceOptions {
+    /// 生产者 ID
+    pub producer_id: String,
+    /// 是否启用序列号
+    pub enable_sequence_numbers: bool,
+    /// 缓存大小
+    pub deduplication_cache_size: usize,
+    /// 缓存过期时间（毫秒）
+    pub deduplication_cache_expiry_ms: u64,
+}
+
+impl Default for IdempotenceOptions {
+    fn default() -> Self {
+        Self {
+            producer_id: format!("arroyo-producer-{}", uuid::Uuid::new_v4()),
+            enable_sequence_numbers: true,
+            deduplication_cache_size: 1000,
+            deduplication_cache_expiry_ms: 60000, // 默认 60 秒过期
+        }
+    }
+}
+
 /// 生产者配置选项
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProducerOptions {
@@ -125,6 +351,14 @@ pub struct ProducerOptions {
     pub send_timeout_ms: u64,
     /// 自适应批处理配置
     pub adaptive_batching: Option<AdaptiveBatchingConfig>,
+    /// 事务配置
+    pub transaction_options: Option<TransactionOptions>,
+    /// 是否启用事务
+    pub transactional: bool,
+    /// 幂等性配置
+    pub idempotence_options: Option<IdempotenceOptions>,
+    /// 是否启用幂等性
+    pub idempotent: bool,
     /// 其他配置选项
     pub config: Option<HashMap<String, String>>,
 }
@@ -141,6 +375,10 @@ impl Default for ProducerOptions {
             retry_backoff_ms: 100,
             send_timeout_ms: 30000, // 默认 30 秒超时
             adaptive_batching: None, // 默认禁用自适应批处理
+            transaction_options: None, // 默认禁用事务
+            transactional: false, // 默认禁用事务
+            idempotence_options: None, // 默认禁用幂等性
+            idempotent: false, // 默认禁用幂等性
             config: None,
         }
     }
@@ -287,6 +525,96 @@ impl ProducerBuilder {
         let mut config = self.options.adaptive_batching.unwrap_or_default();
         config.target_throughput = target_throughput;
         self.options.adaptive_batching = Some(config);
+        self
+    }
+
+    /// 启用事务
+    pub fn enable_transactions(mut self) -> Self {
+        self.options.transactional = true;
+        if self.options.transaction_options.is_none() {
+            self.options.transaction_options = Some(TransactionOptions::default());
+        }
+        self
+    }
+
+    /// 设置事务 ID 前缀
+    pub fn transaction_id_prefix(mut self, prefix: impl Into<String>) -> Self {
+        let mut options = self.options.transaction_options.unwrap_or_default();
+        options.transaction_id_prefix = prefix.into();
+        self.options.transaction_options = Some(options);
+        self.options.transactional = true;
+        self
+    }
+
+    /// 设置事务超时（毫秒）
+    pub fn transaction_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        let mut options = self.options.transaction_options.unwrap_or_default();
+        options.transaction_timeout_ms = timeout_ms;
+        self.options.transaction_options = Some(options);
+        self.options.transactional = true;
+        self
+    }
+
+    /// 设置事务重试次数
+    pub fn transaction_retries(mut self, retries: u32) -> Self {
+        let mut options = self.options.transaction_options.unwrap_or_default();
+        options.transaction_retries = retries;
+        self.options.transaction_options = Some(options);
+        self.options.transactional = true;
+        self
+    }
+
+    /// 设置事务重试间隔（毫秒）
+    pub fn transaction_retry_backoff_ms(mut self, retry_backoff_ms: u64) -> Self {
+        let mut options = self.options.transaction_options.unwrap_or_default();
+        options.transaction_retry_backoff_ms = retry_backoff_ms;
+        self.options.transaction_options = Some(options);
+        self.options.transactional = true;
+        self
+    }
+
+    /// 启用幂等性
+    pub fn enable_idempotence(mut self) -> Self {
+        self.options.idempotent = true;
+        if self.options.idempotence_options.is_none() {
+            self.options.idempotence_options = Some(IdempotenceOptions::default());
+        }
+        self
+    }
+
+    /// 设置生产者 ID
+    pub fn producer_id(mut self, producer_id: impl Into<String>) -> Self {
+        let mut options = self.options.idempotence_options.unwrap_or_default();
+        options.producer_id = producer_id.into();
+        self.options.idempotence_options = Some(options);
+        self.options.idempotent = true;
+        self
+    }
+
+    /// 设置是否启用序列号
+    pub fn enable_sequence_numbers(mut self, enable: bool) -> Self {
+        let mut options = self.options.idempotence_options.unwrap_or_default();
+        options.enable_sequence_numbers = enable;
+        self.options.idempotence_options = Some(options);
+        self.options.idempotent = true;
+        self
+    }
+
+    /// 设置去重缓存大小
+    pub fn deduplication_cache_size(mut self, size: usize) -> Self {
+        let mut options = self.options.idempotence_options.unwrap_or_default();
+        options.deduplication_cache_size = size;
+        self.options.idempotence_options = Some(options);
+        self.options.idempotent = true;
+        self
+    }
+
+    /// 设置去重缓存过期时间（毫秒）
+    pub fn deduplication_cache_expiry_ms(mut self, expiry_ms: u64) -> Self {
+        let mut options = self.options.idempotence_options.unwrap_or_default();
+        options.deduplication_cache_expiry_ms = expiry_ms;
+        self.options.idempotence_options = Some(options);
+        self.options.idempotent = true;
         self
     }
 
@@ -493,6 +821,14 @@ pub struct Producer {
     batcher: Batcher,
     /// 压缩器
     compressor: Arc<dyn Compressor + Send + Sync>,
+    /// 当前事务
+    current_transaction: Option<Arc<TokioMutex<Transaction>>>,
+    /// 事务序号
+    transaction_sequence: Arc<TokioMutex<u64>>,
+    /// 序列号计数器
+    sequence_counter: Arc<TokioMutex<u64>>,
+    /// 消息去重缓存
+    deduplication_cache: Option<Arc<TokioMutex<LruCache<MessageId, bool>>>>,
 }
 
 impl Producer {
@@ -521,12 +857,45 @@ impl Producer {
         // 创建压缩器
         let compressor = create_compressor(options.compression_type);
 
+        // 创建事务（如果启用）
+        let current_transaction = if options.transactional {
+            let tx_options = options.transaction_options.clone().unwrap_or_default();
+            let tx_id = format!(
+                "{}-{}-{}",
+                tx_options.transaction_id_prefix,
+                uuid::Uuid::new_v4(),
+                0
+            );
+            let transaction = Transaction::new(tx_id, tx_options);
+            Some(Arc::new(TokioMutex::new(transaction)))
+        } else {
+            None
+        };
+
+        // 创建去重缓存（如果启用幂等性）
+        let deduplication_cache = if options.idempotent {
+            let cache_size = options
+                .idempotence_options
+                .as_ref()
+                .map(|opts| opts.deduplication_cache_size)
+                .unwrap_or(1000);
+            Some(Arc::new(TokioMutex::new(LruCache::new(
+                std::num::NonZeroUsize::new(cache_size).unwrap(),
+            ))))
+        } else {
+            None
+        };
+
         Self {
             client,
             topic: topic.into(),
             options,
             batcher,
             compressor,
+            current_transaction,
+            transaction_sequence: Arc::new(TokioMutex::new(0)),
+            sequence_counter: Arc::new(TokioMutex::new(0)),
+            deduplication_cache,
         }
     }
 
@@ -568,7 +937,105 @@ impl Producer {
             offset: None,
         };
 
-        self.send_message(message).await
+        if self.options.idempotent {
+            self.send_message_idempotent(message).await
+        } else {
+            self.send_message(message).await
+        }
+    }
+
+    /// 同步幂等性发送消息
+    ///
+    /// 此方法确保消息只会被发送一次，即使在重试的情况下
+    async fn send_message_idempotent(&self, message: Message) -> Result<SendResult> {
+        // 如果未启用幂等性，则使用普通发送
+        if !self.options.idempotent {
+            return self.send_message(message).await;
+        }
+
+        let start_time = Instant::now();
+        let message_size = message.value.len() + message.key.as_ref().map_or(0, |k| k.len());
+
+        // 计算消息哈希
+        let message_hash = MessageId::calculate_message_hash(
+            message.key.as_ref().map(|k| k.as_slice()),
+            &message.value,
+        );
+
+        // 获取生产者 ID
+        let producer_id = self
+            .options
+            .idempotence_options
+            .as_ref()
+            .map(|opts| opts.producer_id.clone())
+            .unwrap_or_else(|| format!("arroyo-producer-{}", uuid::Uuid::new_v4()));
+
+        // 获取并递增序列号
+        let sequence_number = {
+            let mut counter = self.sequence_counter.lock().await;
+            *counter += 1;
+            *counter
+        };
+
+        // 创建消息 ID
+        let message_id = MessageId::new(producer_id, sequence_number, message_hash);
+
+        // 检查消息是否已经发送过
+        if let Some(cache) = &self.deduplication_cache {
+            let cache = cache.lock().await;
+            if cache.contains(&message_id) {
+                // 消息已经发送过，返回成功
+                let latency = start_time.elapsed();
+                return Ok(SendResult {
+                    success: true,
+                    error: None,
+                    latency_ms: 1, // 确保大于0
+                    size_bytes: message_size,
+                    partition: None,
+                    offset: None,
+                });
+            }
+        }
+
+        // 添加消息 ID 到消息头部
+        let mut headers = message.headers.unwrap_or_default();
+        headers.insert(
+            "producer-id".to_string(),
+            message_id.producer_id.clone().into_bytes(),
+        );
+        headers.insert(
+            "sequence-number".to_string(),
+            sequence_number.to_string().into_bytes(),
+        );
+        headers.insert(
+            "message-hash".to_string(),
+            message_hash.to_string().into_bytes(),
+        );
+
+        // 创建带有头部的消息
+        let message_with_headers = Message {
+            key: message.key,
+            value: message.value,
+            headers: Some(headers),
+            timestamp: message.timestamp,
+            partition: message.partition,
+            offset: message.offset,
+        };
+
+        // 发送消息
+        let result = self.send_message(message_with_headers).await;
+
+        // 如果发送成功，将消息 ID 添加到缓存
+        if let Ok(ref send_result) = result {
+            if send_result.success {
+                if let Some(cache) = &self.deduplication_cache {
+                    let mut cache = cache.lock().await;
+                    cache.put(message_id, true);
+                }
+            }
+        }
+
+        result
     }
 
     /// 同步发送消息（带头部）
@@ -594,7 +1061,11 @@ impl Producer {
             offset: None,
         };
 
-        self.send_message(message).await
+        if self.options.idempotent {
+            self.send_message_idempotent(message).await
+        } else {
+            self.send_message(message).await
+        }
     }
 
     /// 异步发送消息
@@ -620,7 +1091,32 @@ impl Producer {
             offset: None,
         };
 
-        self.send_message_async(message, callback);
+        if self.options.idempotent {
+            let producer = self.clone();
+            let callback_clone = callback;
+
+            tokio::spawn(async move {
+                let result = producer.send_message_idempotent(message).await;
+                if let Some(cb) = callback_clone {
+                    match result {
+                        Ok(send_result) => cb(send_result),
+                        Err(e) => {
+                            let send_result = SendResult {
+                                success: false,
+                                error: Some(e.to_string()),
+                                latency_ms: 0,
+                                size_bytes: 0,
+                                partition: None,
+                                offset: None,
+                            };
+                            cb(send_result);
+                        }
+                    }
+                }
+            });
+        } else {
+            self.send_message_async(message, callback);
+        }
     }
 
     /// 异步发送消息（带头部）
@@ -647,7 +1143,32 @@ impl Producer {
             offset: None,
         };
 
-        self.send_message_async(message, callback);
+        if self.options.idempotent {
+            let producer = self.clone();
+            let callback_clone = callback;
+
+            tokio::spawn(async move {
+                let result = producer.send_message_idempotent(message).await;
+                if let Some(cb) = callback_clone {
+                    match result {
+                        Ok(send_result) => cb(send_result),
+                        Err(e) => {
+                            let send_result = SendResult {
+                                success: false,
+                                error: Some(e.to_string()),
+                                latency_ms: 0,
+                                size_bytes: 0,
+                                partition: None,
+                                offset: None,
+                            };
+                            cb(send_result);
+                        }
+                    }
+                }
+            });
+        } else {
+            self.send_message_async(message, callback);
+        }
     }
 
     /// 同步发送消息对象
@@ -843,6 +1364,287 @@ impl Producer {
                 Ok(results)
             }
         }
+    }
+
+    /// 初始化事务
+    pub async fn init_transaction(&self) -> Result<TransactionResult> {
+        if !self.options.transactional {
+            return Err(Error::ValidationError("Producer is not configured for transactions".to_string()));
+        }
+
+        let start_time = Instant::now();
+        let mut tx = match &self.current_transaction {
+            Some(tx) => tx.lock().await,
+            None => return Err(Error::ValidationError("No transaction available".to_string())),
+        };
+
+        if tx.state != TransactionState::Uninitialized {
+            return Err(Error::ValidationError(format!("Transaction is already initialized, current state: {:?}", tx.state)));
+        }
+
+        // 初始化事务
+        tx.initialize();
+
+        let latency = start_time.elapsed();
+        Ok(TransactionResult {
+            success: true,
+            error: None,
+            latency_ms: latency.as_millis() as u64,
+            transaction_id: tx.id.clone(),
+        })
+    }
+
+    /// 开始事务
+    pub async fn begin_transaction(&self) -> Result<TransactionResult> {
+        if !self.options.transactional {
+            return Err(Error::ValidationError("Producer is not configured for transactions".to_string()));
+        }
+
+        let start_time = Instant::now();
+        let mut tx = match &self.current_transaction {
+            Some(tx) => tx.lock().await,
+            None => return Err(Error::ValidationError("No transaction available".to_string())),
+        };
+
+        if tx.state != TransactionState::Initialized {
+            return Err(Error::ValidationError(format!("Transaction is not initialized, current state: {:?}", tx.state)));
+        }
+
+        // 开始事务
+        tx.begin();
+
+        let latency = start_time.elapsed();
+        Ok(TransactionResult {
+            success: true,
+            error: None,
+            latency_ms: latency.as_millis() as u64,
+            transaction_id: tx.id.clone(),
+        })
+    }
+
+    /// 在事务中发送消息
+    pub async fn send_in_transaction(&self, key: Option<Vec<u8>>, value: Vec<u8>) -> Result<SendResult> {
+        if !self.options.transactional {
+            return Err(Error::ValidationError("Producer is not configured for transactions".to_string()));
+        }
+
+        let message = Message {
+            key,
+            value,
+            headers: None,
+            timestamp: Some(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as i64,
+            ),
+            partition: None,
+            offset: None,
+        };
+
+        self.send_message_in_transaction(message).await
+    }
+
+    /// 在事务中发送消息（带头部）
+    pub async fn send_with_headers_in_transaction(
+        &self,
+        key: Option<Vec<u8>>,
+        value: Vec<u8>,
+        headers: HashMap<String, Vec<u8>>,
+    ) -> Result<SendResult> {
+        if !self.options.transactional {
+            return Err(Error::ValidationError("Producer is not configured for transactions".to_string()));
+        }
+
+        let message = Message {
+            key,
+            value,
+            headers: Some(headers),
+            timestamp: Some(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as i64,
+            ),
+            partition: None,
+            offset: None,
+        };
+
+        self.send_message_in_transaction(message).await
+    }
+
+    /// 在事务中发送消息对象
+    async fn send_message_in_transaction(&self, message: Message) -> Result<SendResult> {
+        if !self.options.transactional {
+            return Err(Error::ValidationError("Producer is not configured for transactions".to_string()));
+        }
+
+        let start_time = Instant::now();
+        let message_size = message.value.len() + message.key.as_ref().map_or(0, |k| k.len());
+
+        // 获取当前事务
+        let mut tx = match &self.current_transaction {
+            Some(tx) => tx.lock().await,
+            None => return Err(Error::ValidationError("No transaction available".to_string())),
+        };
+
+        if tx.state != TransactionState::Started {
+            return Err(Error::ValidationError(format!("Transaction is not started, current state: {:?}", tx.state)));
+        }
+
+        // 添加消息到事务
+        tx.add_message(message);
+
+        let latency = start_time.elapsed();
+        Ok(SendResult {
+            success: true,
+            error: None,
+            latency_ms: latency.as_millis() as u64,
+            size_bytes: message_size,
+            partition: None,
+            offset: None,
+        })
+    }
+
+    /// 提交事务
+    pub async fn commit_transaction(&self) -> Result<TransactionResult> {
+        if !self.options.transactional {
+            return Err(Error::ValidationError("Producer is not configured for transactions".to_string()));
+        }
+
+        let start_time = Instant::now();
+        let mut tx = match &self.current_transaction {
+            Some(tx) => tx.lock().await,
+            None => return Err(Error::ValidationError("No transaction available".to_string())),
+        };
+
+        if tx.state != TransactionState::Started {
+            return Err(Error::ValidationError(format!("Transaction is not started, current state: {:?}", tx.state)));
+        }
+
+        // 获取事务中的所有消息
+        let messages = tx.take_messages();
+        if messages.is_empty() {
+            // 如果没有消息，直接提交
+            tx.commit();
+            let latency = start_time.elapsed();
+            return Ok(TransactionResult {
+                success: true,
+                error: None,
+                latency_ms: latency.as_millis() as u64,
+                transaction_id: tx.id.clone(),
+            });
+        }
+
+        // 发送所有消息
+        let result = self.send_batch(messages).await;
+
+        match result {
+            Ok(results) => {
+                // 检查是否所有消息都发送成功
+                let all_success = results.iter().all(|r| r.success);
+                if all_success {
+                    // 提交事务
+                    tx.commit();
+                    let latency = start_time.elapsed();
+                    Ok(TransactionResult {
+                        success: true,
+                        error: None,
+                        latency_ms: latency.as_millis() as u64,
+                        transaction_id: tx.id.clone(),
+                    })
+                } else {
+                    // 如果有消息发送失败，中止事务
+                    tx.abort();
+                    let errors: Vec<String> = results
+                        .iter()
+                        .filter_map(|r| r.error.clone())
+                        .collect();
+                    let error_message = format!("Failed to send messages: {}", errors.join(", "));
+                    let latency = start_time.elapsed();
+                    Ok(TransactionResult {
+                        success: false,
+                        error: Some(error_message),
+                        latency_ms: latency.as_millis() as u64,
+                        transaction_id: tx.id.clone(),
+                    })
+                }
+            }
+            Err(e) => {
+                // 如果发送失败，中止事务
+                tx.abort();
+                let latency = start_time.elapsed();
+                Ok(TransactionResult {
+                    success: false,
+                    error: Some(e.to_string()),
+                    latency_ms: latency.as_millis() as u64,
+                    transaction_id: tx.id.clone(),
+                })
+            }
+        }
+    }
+
+    /// 中止事务
+    pub async fn abort_transaction(&self) -> Result<TransactionResult> {
+        if !self.options.transactional {
+            return Err(Error::ValidationError("Producer is not configured for transactions".to_string()));
+        }
+
+        let start_time = Instant::now();
+        let mut tx = match &self.current_transaction {
+            Some(tx) => tx.lock().await,
+            None => return Err(Error::ValidationError("No transaction available".to_string())),
+        };
+
+        if tx.state != TransactionState::Started {
+            return Err(Error::ValidationError(format!("Transaction is not started, current state: {:?}", tx.state)));
+        }
+
+        // 中止事务
+        tx.abort();
+
+        let latency = start_time.elapsed();
+        Ok(TransactionResult {
+            success: true,
+            error: None,
+            latency_ms: latency.as_millis() as u64,
+            transaction_id: tx.id.clone(),
+        })
+    }
+
+    /// 创建新事务
+    pub async fn new_transaction(&self) -> Result<TransactionResult> {
+        if !self.options.transactional {
+            return Err(Error::ValidationError("Producer is not configured for transactions".to_string()));
+        }
+
+        let start_time = Instant::now();
+
+        // 获取并递增事务序号
+        let mut seq = self.transaction_sequence.lock().await;
+        *seq += 1;
+        let sequence = *seq;
+
+        // 创建新事务
+        let tx_options = self.options.transaction_options.clone().unwrap_or_default();
+        let tx_id = format!(
+            "{}-{}-{}",
+            tx_options.transaction_id_prefix,
+            uuid::Uuid::new_v4(),
+            sequence
+        );
+        let transaction = Transaction::new(tx_id.clone(), tx_options);
+
+        // 替换当前事务
+        *self.current_transaction.as_ref().unwrap().lock().await = transaction;
+
+        let latency = start_time.elapsed();
+        Ok(TransactionResult {
+            success: true,
+            error: None,
+            latency_ms: latency.as_millis() as u64,
+            transaction_id: tx_id,
+        })
     }
 
     /// 异步批量发送消息

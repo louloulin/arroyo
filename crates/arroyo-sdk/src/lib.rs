@@ -52,6 +52,6 @@ pub use consumer::{Consumer, ConsumerBuilder, ConsumerOptions};
 pub use error::{Error, Result};
 pub use producer::{
     AdaptiveBatchingConfig, AdaptiveBatchingStrategy, Producer, ProducerBuilder, ProducerOptions,
-    SendCallback, SendResult,
+    SendCallback, SendResult, Transaction, TransactionOptions, TransactionResult, TransactionState,
 };
 pub use topic::{TopicBuilder, TopicOptions};
