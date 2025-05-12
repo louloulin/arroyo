@@ -26,7 +26,7 @@ pub enum ConnectionState {
 }
 
 /// 连接配置
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConnectionConfig {
     /// 最大连接数
     pub max_connections: usize,
@@ -56,6 +56,10 @@ pub struct ConnectionConfig {
     pub cache_config: Option<crate::cache::CacheConfig>,
     /// 预取配置
     pub prefetch_config: Option<crate::prefetch::PrefetchConfig>,
+    /// 指标配置
+    pub metrics_config: Option<crate::metrics::ClientMetricsConfig>,
+    /// 配置更新器配置
+    pub config_updater_config: Option<crate::config_updater::ConfigUpdaterConfig>,
 }
 
 impl Default for ConnectionConfig {
@@ -75,6 +79,8 @@ impl Default for ConnectionConfig {
             failover_config: None,
             cache_config: None,
             prefetch_config: None,
+            metrics_config: None,
+            config_updater_config: None,
         }
     }
 }
@@ -525,7 +531,7 @@ pub struct ConnectionPoolStats {
     pub min_connections: usize,
 }
 
-/// 增强的 Arroyo 客户端，支持连接池、会话管理、重试、故障转移、缓存和预取
+/// 增强的 Arroyo 客户端，支持连接池、会话管理、重试、故障转移、缓存、预取、指标收集和配置自动更新
 #[derive(Debug, Clone)]
 pub struct PooledArroyoClient {
     /// 基础 URL
@@ -542,6 +548,14 @@ pub struct PooledArroyoClient {
     pub(crate) cache: Option<crate::cache::ClientCache>,
     /// 预取管理器
     pub(crate) prefetch_manager: Option<crate::prefetch::PrefetchManager>,
+    /// 指标管理器
+    pub(crate) metrics_manager: Option<crate::metrics::ClientMetricsManager>,
+    /// 请求指标收集器
+    pub(crate) request_metrics: Option<Arc<crate::metrics_collectors::RequestMetricsCollector>>,
+    /// 缓存指标收集器
+    pub(crate) cache_metrics: Option<Arc<crate::metrics_collectors::CacheMetricsCollector>>,
+    /// 配置更新器
+    pub(crate) config_updater: Option<Arc<crate::config_updater::ConfigUpdater>>,
 }
 
 impl PooledArroyoClient {
@@ -585,15 +599,92 @@ impl PooledArroyoClient {
             None
         };
 
+        // 创建指标管理器（如果配置了）
+        let metrics_manager_option = if let Some(metrics_config) = config.metrics_config.clone() {
+            if metrics_config.enabled {
+                Some(crate::metrics::ClientMetricsManager::new(metrics_config))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // 创建请求指标收集器
+        let request_metrics = if metrics_manager_option.is_some() {
+            let collector = Arc::new(crate::metrics_collectors::RequestMetricsCollector::new());
+
+            // 添加到指标管理器
+            if let Some(manager) = &metrics_manager_option {
+                let collector_clone = collector.clone();
+                let manager_clone = manager.clone();
+                tokio::spawn(async move {
+                    let _ = manager_clone.add_custom_collector(Box::new((*collector_clone).clone())).await;
+                });
+            }
+
+            Some(collector)
+        } else {
+            None
+        };
+
+        // 创建缓存指标收集器
+        let cache_metrics = if metrics_manager_option.is_some() && cache.is_some() {
+            let collector = Arc::new(crate::metrics_collectors::CacheMetricsCollector::new());
+
+            // 添加到指标管理器
+            if let Some(manager) = &metrics_manager_option {
+                let collector_clone = collector.clone();
+                let manager_clone = manager.clone();
+                tokio::spawn(async move {
+                    let _ = manager_clone.add_custom_collector(Box::new((*collector_clone).clone())).await;
+                });
+            }
+
+            Some(collector)
+        } else {
+            None
+        };
+
         let client = Self {
-            base_url,
+            base_url: base_url.clone(),
             pool,
             session_id: None,
-            retry_config: config.retry_config,
+            retry_config: config.retry_config.clone(),
             failover_manager,
             cache,
             prefetch_manager,
+            metrics_manager: metrics_manager_option,
+            request_metrics,
+            cache_metrics,
+            config_updater: None,
         };
+
+        // 创建配置更新器（如果配置了）
+        let config_updater = if let Some(updater_config) = config.config_updater_config {
+            if updater_config.enabled {
+                let updater = Arc::new(crate::config_updater::ConfigUpdater::new(
+                    client.clone(),
+                    updater_config,
+                ));
+
+                // 启动配置更新器
+                updater.clone().start();
+
+                Some(updater)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // 更新客户端的配置更新器
+        if let Some(updater) = config_updater {
+            let mut client_mut = client.clone();
+            client_mut.config_updater = Some(updater);
+            return Ok(client_mut);
+        }
 
         // 如果启用了预取，启动预取处理循环
         if client.prefetch_manager.is_some() && client.cache.is_some() {
@@ -650,6 +741,10 @@ impl PooledArroyoClient {
 
     /// 发送 GET 请求
     pub async fn get(&self, path: &str) -> Result<Response> {
+        // 记录请求开始时间（用于指标收集）
+        let start_time = std::time::Instant::now();
+        let method = "GET";
+
         // 检查缓存
         if let Some(cache) = &self.cache {
             // 创建缓存键
@@ -662,6 +757,16 @@ impl PooledArroyoClient {
 
             // 尝试从缓存获取
             if let Some(response) = cache.get_response(&cache_key).await {
+                // 记录缓存命中
+                if let Some(cache_metrics) = &self.cache_metrics {
+                    cache_metrics.record_cache_hit(path).await;
+                }
+
+                // 记录请求成功
+                if let Some(request_metrics) = &self.request_metrics {
+                    request_metrics.record_request(method, path, start_time.elapsed(), true).await;
+                }
+
                 // 如果启用了预取，记录访问
                 if let Some(prefetch) = &self.prefetch_manager {
                     prefetch.record_access(path).await;
@@ -681,6 +786,11 @@ impl PooledArroyoClient {
                 }
 
                 return Ok(response);
+            }
+
+            // 记录缓存未命中
+            if let Some(cache_metrics) = &self.cache_metrics {
+                cache_metrics.record_cache_miss(path).await;
             }
         }
 
@@ -761,12 +871,54 @@ impl PooledArroyoClient {
 
             // 处理结果
             match result {
-                Ok(response) => Ok(response),
+                Ok(response) => {
+                    // 记录请求成功
+                    if let Some(request_metrics) = &self.request_metrics {
+                        request_metrics.record_request(method, path, start_time.elapsed(), true).await;
+                    }
+
+                    // 如果启用了指标管理器，记录请求延迟
+                    if let Some(metrics_manager) = &self.metrics_manager {
+                        let _ = metrics_manager.observe_histogram(
+                            "request_latency",
+                            "Request latency in seconds",
+                            &[method, path],
+                            start_time.elapsed().as_secs_f64(),
+                        ).await;
+                    }
+
+                    Ok(response)
+                },
                 Err(error) => {
+                    // 记录请求失败
+                    if let Some(request_metrics) = &self.request_metrics {
+                        request_metrics.record_request(method, path, start_time.elapsed(), false).await;
+                    }
+
+                    // 如果启用了指标管理器，增加错误计数
+                    if let Some(metrics_manager) = &self.metrics_manager {
+                        let _ = metrics_manager.increment_int_counter(
+                            "request_errors",
+                            "Request error count",
+                            &[method, path],
+                            1,
+                        ).await;
+                    }
+
                     // 如果启用了故障转移，尝试故障转移
                     if let Some(failover) = &self.failover_manager {
                         let should_failover = failover.report_failure(&error).await?;
                         if should_failover {
+                            // 如果启用了指标管理器，增加故障转移计数
+                            if let Some(metrics_manager) = &self.metrics_manager {
+                                let _ = metrics_manager.increment_int_counter(
+                                    "failover_count",
+                                    "Failover count",
+                                    &[method, path],
+                                    1,
+                                ).await;
+                            }
+
                             failover.perform_failover().await?;
                             // 使用新的端点重试
                             let client = self.pool.get_connection().await?;
@@ -799,6 +951,11 @@ impl PooledArroyoClient {
 
                                 // 缓存响应
                                 let _ = cache.cache_response(cache_key, &response, None).await;
+                            }
+
+                            // 记录故障转移后的请求成功
+                            if let Some(request_metrics) = &self.request_metrics {
+                                request_metrics.record_request(method, path, start_time.elapsed(), true).await;
                             }
 
                             return Ok(response);
@@ -855,6 +1012,21 @@ impl PooledArroyoClient {
 
             // 释放连接
             self.pool.release_connection(&client).await;
+
+            // 记录请求成功
+            if let Some(request_metrics) = &self.request_metrics {
+                request_metrics.record_request(method, path, start_time.elapsed(), true).await;
+            }
+
+            // 如果启用了指标管理器，记录请求延迟
+            if let Some(metrics_manager) = &self.metrics_manager {
+                let _ = metrics_manager.observe_histogram(
+                    "request_latency",
+                    "Request latency in seconds",
+                    &[method, path],
+                    start_time.elapsed().as_secs_f64(),
+                ).await;
+            }
 
             Ok(response)
         }
@@ -1357,5 +1529,50 @@ impl PooledArroyoClient {
         }
 
         Ok(())
+    }
+
+    /// 获取配置更新器
+    pub fn get_config_updater(&self) -> Option<Arc<crate::config_updater::ConfigUpdater>> {
+        self.config_updater.clone()
+    }
+
+    /// 手动触发配置更新检查
+    pub async fn check_config_updates(&self) -> Result<bool> {
+        if let Some(updater) = &self.config_updater {
+            updater.force_check_update().await
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// 添加配置更新监听器
+    pub async fn add_config_update_listener(
+        &self,
+        listener: Box<dyn Fn(crate::config_updater::ConfigUpdateEvent) + Send + Sync>,
+    ) -> Result<()> {
+        if let Some(updater) = &self.config_updater {
+            updater.add_listener(listener).await;
+            Ok(())
+        } else {
+            Err(Error::ClientError("配置更新器未启用".to_string()))
+        }
+    }
+
+    /// 获取当前配置版本
+    pub async fn get_config_version(&self) -> Result<String> {
+        if let Some(updater) = &self.config_updater {
+            Ok(updater.get_config_version().await)
+        } else {
+            Err(Error::ClientError("配置更新器未启用".to_string()))
+        }
+    }
+
+    /// 获取上次配置更新时间
+    pub async fn get_last_config_update_time(&self) -> Result<Instant> {
+        if let Some(updater) = &self.config_updater {
+            Ok(updater.get_last_update_time().await)
+        } else {
+            Err(Error::ClientError("配置更新器未启用".to_string()))
+        }
     }
 }

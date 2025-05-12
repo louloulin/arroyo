@@ -97,7 +97,7 @@ pub enum CacheStrategy {
 }
 
 /// 缓存配置
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CacheConfig {
     /// 是否启用缓存
     pub enabled: bool,

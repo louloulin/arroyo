@@ -28,6 +28,8 @@ pub enum Error {
     ConnectionError(String),
     /// 请求错误
     RequestError(String),
+    /// 指标错误
+    MetricsError(String),
     /// 其他错误
     Other(String),
 }
@@ -46,6 +48,7 @@ impl fmt::Display for Error {
             Error::SessionError(message) => write!(f, "Session error: {}", message),
             Error::ConnectionError(message) => write!(f, "Connection error: {}", message),
             Error::RequestError(message) => write!(f, "Request error: {}", message),
+            Error::MetricsError(message) => write!(f, "Metrics error: {}", message),
             Error::Other(message) => write!(f, "Error: {}", message),
         }
     }

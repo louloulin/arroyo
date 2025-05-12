@@ -50,6 +50,9 @@ pub mod topic;
 pub mod util;
 pub mod cache;
 pub mod prefetch;
+pub mod metrics;
+pub mod metrics_collectors;
+pub mod config_updater;
 
 // Re-export commonly used types
 pub use client::ArroyoClient;
@@ -71,3 +74,6 @@ pub use producer::{
 };
 pub use retry::{RetryConfig, RetryStrategy, RetryableErrorType};
 pub use topic::{TopicBuilder, TopicOptions};
+pub use config_updater::{
+    ConfigUpdater, ConfigUpdaterConfig, ConfigUpdateStrategy, ConfigUpdateEvent, ConfigUpdateEventType,
+};

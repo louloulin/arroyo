@@ -16,7 +16,7 @@ pub enum FailoverState {
 }
 
 /// 故障转移配置
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FailoverConfig {
     /// 是否启用故障转移
     pub enabled: bool,

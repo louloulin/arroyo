@@ -18,7 +18,7 @@ pub enum PrefetchStrategy {
 }
 
 /// 预取配置
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PrefetchConfig {
     /// 是否启用预取
     pub enabled: bool,

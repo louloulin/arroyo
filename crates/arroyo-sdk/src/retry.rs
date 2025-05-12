@@ -16,7 +16,7 @@ pub enum RetryStrategy {
 }
 
 /// 重试配置
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RetryConfig {
     /// 最大重试次数
     pub max_retries: u32,
@@ -206,7 +206,7 @@ where
 
                 retries += 1;
                 error_handler(&error, retries, config.max_retries);
-                
+
                 let delay = config.calculate_delay(retries);
                 debug!("等待 {:?} 后重试...", delay);
                 tokio::time::sleep(delay).await;
