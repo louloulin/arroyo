@@ -1,13 +1,14 @@
 use crate::error::ApiError;
-use arroyo_connectors::topic::{TopicAdmin, TopicHealthChecker};
+use arroyo_connectors::topic::{TopicAdmin, TopicExport, TopicHealthChecker};
 use arroyo_rpc::api_types::topics::{
-    CreateTopicRequest, TopicDetailsResponse, TopicHealthCheckRequest,
-    TopicHealthCheckResponse, TopicListResponse, UpdateTopicRequest,
+    CreateTopicRequest, TopicDetailsResponse, TopicExportRequest, TopicExportResponse,
+    TopicHealthCheckRequest, TopicHealthCheckResponse, TopicImportRequest, TopicImportResponse,
+    TopicListResponse, UpdateTopicRequest,
 };
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
-    response::IntoResponse,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use std::sync::Arc;
@@ -162,6 +163,135 @@ impl TopicController {
             Json(TopicHealthCheckResponse { topics }),
         ))
     }
+
+    /// 导出 Topic 配置
+    pub async fn export_topics(
+        &self,
+        request: TopicExportRequest,
+        user_id: Option<&str>,
+    ) -> Result<impl IntoResponse, ApiError> {
+        info!("Exporting topics");
+
+        // 获取所有 Topic
+        let all_topics = self.admin.list_topics(user_id).await.map_err(|e| {
+            error!("Failed to list topics: {}", e);
+            ApiError::internal_error(format!("Failed to list topics: {}", e))
+        })?;
+
+        // 过滤 Topic
+        let topics = match &request.topics {
+            Some(topic_names) => {
+                all_topics.into_iter()
+                    .filter(|t| topic_names.contains(&t.name))
+                    .collect::<Vec<_>>()
+            }
+            None => all_topics,
+        };
+
+        // 创建导出对象
+        let export = TopicExport::from_topic_infos(&topics);
+
+        // 根据格式导出
+        let (content, format) = match request.format.as_str() {
+            "yaml" => (export.to_yaml_string().map_err(|e| {
+                error!("Failed to export topics to YAML: {}", e);
+                ApiError::internal_error(format!("Failed to export topics to YAML: {}", e))
+            })?, "yaml".to_string()),
+            _ => (export.to_json_string().map_err(|e| {
+                error!("Failed to export topics to JSON: {}", e);
+                ApiError::internal_error(format!("Failed to export topics to JSON: {}", e))
+            })?, "json".to_string()),
+        };
+
+        // 如果需要下载文件，返回文件响应
+        if request.download {
+            let filename = format!("topics_export_{}.{}",
+                chrono::Utc::now().format("%Y%m%d%H%M%S"),
+                format);
+
+            let mut response = Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, match format.as_str() {
+                    "yaml" => "application/yaml",
+                    _ => "application/json",
+                })
+                .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename))
+                .body(content.into())
+                .map_err(|e| {
+                    error!("Failed to build response: {}", e);
+                    ApiError::internal_error(format!("Failed to build response: {}", e))
+                })?;
+
+            Ok(response)
+        } else {
+            // 否则返回 JSON 响应
+            Ok((
+                StatusCode::OK,
+                Json(TopicExportResponse { content, format }),
+            ))
+        }
+    }
+
+    /// 导入 Topic 配置
+    pub async fn import_topics(
+        &self,
+        request: TopicImportRequest,
+        user_id: Option<&str>,
+    ) -> Result<impl IntoResponse, ApiError> {
+        info!("Importing topics");
+
+        // 解析导入内容
+        let export = match request.format.as_str() {
+            "yaml" => TopicExport::from_yaml_string(&request.content).map_err(|e| {
+                error!("Failed to parse YAML: {}", e);
+                ApiError::bad_request(format!("Failed to parse YAML: {}", e))
+            })?,
+            _ => TopicExport::from_json_string(&request.content).map_err(|e| {
+                error!("Failed to parse JSON: {}", e);
+                ApiError::bad_request(format!("Failed to parse JSON: {}", e))
+            })?,
+        };
+
+        let mut imported_topics = Vec::new();
+        let mut skipped_topics = Vec::new();
+
+        // 导入 Topic
+        for config in &export.topics {
+            // 检查 Topic 是否已存在
+            let exists = self.admin.topic_exists(&config.name).await.map_err(|e| {
+                error!("Failed to check if topic exists: {}", e);
+                ApiError::internal_error(format!("Failed to check if topic exists: {}", e))
+            })?;
+
+            if exists {
+                info!("Topic '{}' already exists, skipping", config.name);
+                skipped_topics.push(config.name.clone());
+                continue;
+            }
+
+            // 创建 Topic
+            match self.admin.create_topic(config, user_id).await {
+                Ok(info) => {
+                    info!("Created topic: {}", config.name);
+                    imported_topics.push(config.name.clone());
+                }
+                Err(e) => {
+                    error!("Failed to create topic {}: {}", config.name, e);
+                    return Err(ApiError::bad_request(format!("Failed to create topic {}: {}", config.name, e)));
+                }
+            }
+        }
+
+        Ok((
+            StatusCode::OK,
+            Json(TopicImportResponse {
+                imported_count: imported_topics.len() as i32,
+                skipped_count: skipped_topics.len() as i32,
+                imported_topics,
+                skipped_topics,
+            }),
+        ))
+    }
 }
 
 /// Create a new topic
@@ -220,4 +350,24 @@ pub async fn check_topic_health(
     Json(request): Json<TopicHealthCheckRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     state.topic_controller.check_topic_health(request).await
+}
+
+/// Export topics
+pub async fn export_topics(
+    State(state): State<crate::rest::AppState>,
+    Json(request): Json<TopicExportRequest>,
+    // 在实际应用中，这里应该从认证中间件获取用户 ID
+    // 这里简化处理，使用 None 表示未认证用户
+) -> Result<impl IntoResponse, ApiError> {
+    state.topic_controller.export_topics(request, None).await
+}
+
+/// Import topics
+pub async fn import_topics(
+    State(state): State<crate::rest::AppState>,
+    Json(request): Json<TopicImportRequest>,
+    // 在实际应用中，这里应该从认证中间件获取用户 ID
+    // 这里简化处理，使用 None 表示未认证用户
+) -> Result<impl IntoResponse, ApiError> {
+    state.topic_controller.import_topics(request, None).await
 }

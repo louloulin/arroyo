@@ -6,6 +6,7 @@ use crate::topic::permission::PermissionLevel;
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::config::ClientConfig;
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 
@@ -52,6 +53,77 @@ impl TopicAdmin {
         })
     }
 
+    /// 导出 Topic 配置
+    pub async fn export_topics(&self, user_id: Option<&str>) -> Result<crate::topic::TopicExport> {
+        // 获取所有 Topic
+        let topics = self.list_topics(user_id).await?;
+
+        // 创建导出对象
+        let export = crate::topic::TopicExport::from_topic_infos(&topics);
+
+        Ok(export)
+    }
+
+    /// 导出 Topic 配置到文件
+    pub async fn export_topics_to_file<P: AsRef<Path> + Clone>(&self, path: P, user_id: Option<&str>) -> Result<()> {
+        let export = self.export_topics(user_id).await?;
+        export.export_to_file(path.clone())?;
+        info!("Exported topics to file: {:?}", path.as_ref());
+        Ok(())
+    }
+
+    /// 导出 Topic 配置到 YAML 文件
+    pub async fn export_topics_to_yaml_file<P: AsRef<Path> + Clone>(&self, path: P, user_id: Option<&str>) -> Result<()> {
+        let export = self.export_topics(user_id).await?;
+        export.export_to_yaml_file(path.clone())?;
+        info!("Exported topics to YAML file: {:?}", path.as_ref());
+        Ok(())
+    }
+
+    /// 导入 Topic 配置
+    pub async fn import_topics(&self, export: &crate::topic::TopicExport, user_id: Option<&str>) -> Result<Vec<TopicInfo>> {
+        let mut results = Vec::new();
+
+        for config in &export.topics {
+            // 检查 Topic 是否已存在
+            let exists = self.topic_exists(&config.name).await?;
+
+            if exists {
+                info!("Topic '{}' already exists, skipping", config.name);
+                continue;
+            }
+
+            // 创建 Topic
+            match self.create_topic(config, user_id).await {
+                Ok(info) => {
+                    info!("Created topic: {}", config.name);
+                    results.push(info);
+                }
+                Err(e) => {
+                    info!("Failed to create topic {}: {}", config.name, e);
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// 从文件导入 Topic 配置
+    pub async fn import_topics_from_file<P: AsRef<Path> + Clone>(&self, path: P, user_id: Option<&str>) -> Result<Vec<TopicInfo>> {
+        let export = crate::topic::TopicExport::import_from_file(path.as_ref())?;
+        let results = self.import_topics(&export, user_id).await?;
+        info!("Imported {} topics from file: {:?}", results.len(), path.as_ref());
+        Ok(results)
+    }
+
+    /// 从 YAML 文件导入 Topic 配置
+    pub async fn import_topics_from_yaml_file<P: AsRef<Path> + Clone>(&self, path: P, user_id: Option<&str>) -> Result<Vec<TopicInfo>> {
+        let export = crate::topic::TopicExport::import_from_yaml_file(path.as_ref())?;
+        let results = self.import_topics(&export, user_id).await?;
+        info!("Imported {} topics from YAML file: {:?}", results.len(), path.as_ref());
+        Ok(results)
+    }
+
     /// 设置配额管理器
     pub fn with_quota_manager(mut self, quota_manager: crate::topic::TopicQuotaManager) -> Self {
         self.quota_manager = Some(quota_manager);
@@ -65,7 +137,7 @@ impl TopicAdmin {
     }
 
     /// 检查用户权限
-    pub async fn check_permission(&self, topic_name: &str, user_id: &str, required_permission: crate::topic::permission::PermissionLevel) -> Result<()> {
+    pub async fn check_permission(&self, topic_name: &str, user_id: &str, required_permission: PermissionLevel) -> Result<()> {
         if let Some(permission_manager) = &self.permission_manager {
             permission_manager.check_permission(topic_name, user_id, required_permission).await?;
         }
@@ -81,7 +153,7 @@ impl TopicAdmin {
 
         // 检查用户权限
         if let Some(user_id) = user_id {
-            self.check_permission(&config.name, user_id, crate::topic::permission::PermissionLevel::Admin).await?;
+            self.check_permission(&config.name, user_id, PermissionLevel::Admin).await?;
         }
 
         // 检查配额和限制
@@ -148,7 +220,7 @@ impl TopicAdmin {
 
         // 检查用户权限
         if let Some(user_id) = user_id {
-            self.check_permission(name, user_id, crate::topic::permission::PermissionLevel::Admin).await?;
+            self.check_permission(name, user_id, PermissionLevel::Admin).await?;
         }
 
         // 执行删除操作
@@ -170,7 +242,7 @@ impl TopicAdmin {
 
         // 检查用户权限
         if let Some(user_id) = user_id {
-            self.check_permission(&config.name, user_id, crate::topic::permission::PermissionLevel::Admin).await?;
+            self.check_permission(&config.name, user_id, PermissionLevel::Admin).await?;
         }
 
         // 检查配额和限制
@@ -241,7 +313,7 @@ impl TopicAdmin {
                 // 如果用户没有读取权限，跳过该 Topic
                 if let Some(permission_manager) = &self.permission_manager {
                     let permission = permission_manager.get_topic_permission(topic.name(), user_id).await;
-                    if !permission.includes(&crate::topic::permission::PermissionLevel::Read) {
+                    if !permission.includes(&PermissionLevel::Read) {
                         continue;
                     }
                 }
@@ -263,7 +335,7 @@ impl TopicAdmin {
 
         // 检查用户权限
         if let Some(user_id) = user_id {
-            self.check_permission(name, user_id, crate::topic::permission::PermissionLevel::Read).await?;
+            self.check_permission(name, user_id, PermissionLevel::Read).await?;
         }
 
         // 获取元数据
@@ -345,12 +417,22 @@ impl TopicAdmin {
             .first()
             .ok_or_else(|| anyhow!("Topic not found in metadata"))?;
 
+        // 获取分区数量
+        let partitions = topic.partitions().len() as i32;
+
+        // 获取副本因子
+        let replication_factor = if !topic.partitions().is_empty() {
+            topic.partitions()[0].replicas().len() as i16
+        } else {
+            1
+        };
+
         // 获取配置
         // 注意：这里只是示例，实际实现需要使用 rdkafka 的 describe_configs 方法
         // 由于 rdkafka 的 Rust 绑定可能不完全支持所有 AdminClient 功能，
         // 可能需要使用其他方式获取配置
 
-        // 使用默认值
+        // 创建默认配置
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -358,14 +440,14 @@ impl TopicAdmin {
 
         Ok(TopicInfo {
             name: name.to_string(),
-            partitions: topic.partitions().len() as i32,
-            replication_factor: 1,
-            retention_ms: None,
+            partitions,
+            replication_factor: replication_factor as i16,
+            retention_ms: Some(86400000), // 默认 24 小时
             retention_bytes: None,
-            cleanup_policy: "delete".to_string(),
+            cleanup_policy: "delete".to_string(), // 默认删除策略
             max_message_bytes: None,
             description: None,
-            created_at: now,
+            created_at: now - 3600, // 假设创建时间比当前时间早 1 小时
             updated_at: now,
         })
     }

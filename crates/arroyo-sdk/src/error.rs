@@ -46,3 +46,15 @@ impl From<serde_json::Error> for Error {
         Error::SerializationError(err.to_string())
     }
 }
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::Other(format!("IO error: {}", err))
+    }
+}
+
+impl From<serde_yaml::Error> for Error {
+    fn from(err: serde_yaml::Error) -> Self {
+        Error::SerializationError(err.to_string())
+    }
+}

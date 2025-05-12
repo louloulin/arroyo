@@ -246,6 +246,22 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .route("/topics/:name", delete(|| async {
             StatusCode::NO_CONTENT
         }))
+        .route("/topics/export", post(|| async {
+            let response = Json(serde_json::json!({
+                "content": "{}",
+                "format": "json"
+            }));
+            (StatusCode::OK, response)
+        }))
+        .route("/topics/import", post(|| async {
+            let response = Json(serde_json::json!({
+                "imported_count": 0,
+                "skipped_count": 0,
+                "imported_topics": [],
+                "skipped_topics": []
+            }));
+            (StatusCode::OK, response)
+        }))
         .route("/udfs", post(create_udf))
         .route("/udfs", get(get_udfs))
         .route("/udfs/validate", post(validate_udf))

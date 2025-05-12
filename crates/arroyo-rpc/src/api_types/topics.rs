@@ -237,3 +237,63 @@ pub struct TopicHealthCheckResponse {
     /// Topic 健康信息列表
     pub topics: Vec<TopicHealth>,
 }
+
+/// Topic 导出请求
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicExportRequest {
+    /// Topic 名称列表，如果为空则导出所有 Topic
+    pub topics: Option<Vec<String>>,
+    /// 导出格式，支持 json 和 yaml
+    #[serde(default = "default_export_format")]
+    pub format: String,
+    /// 是否下载文件
+    #[serde(default)]
+    pub download: bool,
+}
+
+fn default_export_format() -> String {
+    "json".to_string()
+}
+
+/// Topic 导出响应
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicExportResponse {
+    /// 导出内容
+    pub content: String,
+    /// 导出格式
+    pub format: String,
+}
+
+/// Topic 导入请求
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicImportRequest {
+    /// 导入内容
+    pub content: String,
+    /// 导入格式，支持 json 和 yaml
+    #[serde(default = "default_export_format")]
+    pub format: String,
+    /// 是否跳过已存在的 Topic
+    #[serde(default = "default_skip_existing")]
+    pub skip_existing: bool,
+}
+
+fn default_skip_existing() -> bool {
+    true
+}
+
+/// Topic 导入响应
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicImportResponse {
+    /// 导入的 Topic 数量
+    pub imported_count: i32,
+    /// 跳过的 Topic 数量
+    pub skipped_count: i32,
+    /// 导入的 Topic 列表
+    pub imported_topics: Vec<String>,
+    /// 跳过的 Topic 列表
+    pub skipped_topics: Vec<String>,
+}

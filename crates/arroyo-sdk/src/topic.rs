@@ -1,8 +1,10 @@
 use crate::client::ArroyoClient;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::models::Topic;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::path::Path;
 
 /// Topic 配置选项
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +159,62 @@ impl ArroyoClient {
             .await?;
 
         self.handle_response(response).await
+    }
+
+    /// 导出 Topic 配置
+    pub async fn export_topics(&self, topics: Option<Vec<String>>, format: Option<String>) -> Result<String> {
+        let request = serde_json::json!({
+            "topics": topics,
+            "format": format.unwrap_or_else(|| "json".to_string()),
+            "download": false
+        });
+
+        let response = self
+            .client
+            .post(&format!("{}/api/topics/export", self.base_url))
+            .json(&request)
+            .send()
+            .await?;
+
+        let result: serde_json::Value = self.handle_response(response).await?;
+        Ok(result["content"].as_str().unwrap_or_default().to_string())
+    }
+
+    /// 导出 Topic 配置到文件
+    pub async fn export_topics_to_file<P: AsRef<std::path::Path>>(&self, path: P, topics: Option<Vec<String>>, format: Option<String>) -> Result<()> {
+        let content = self.export_topics(topics, format).await?;
+
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(content.as_bytes())?;
+
+        Ok(())
+    }
+
+    /// 导入 Topic 配置
+    pub async fn import_topics(&self, content: &str, format: Option<String>, skip_existing: Option<bool>) -> Result<serde_json::Value> {
+        let request = serde_json::json!({
+            "content": content,
+            "format": format.unwrap_or_else(|| "json".to_string()),
+            "skip_existing": skip_existing.unwrap_or(true)
+        });
+
+        let response = self
+            .client
+            .post(&format!("{}/api/topics/import", self.base_url))
+            .json(&request)
+            .send()
+            .await?;
+
+        self.handle_response(response).await
+    }
+
+    /// 从文件导入 Topic 配置
+    pub async fn import_topics_from_file<P: AsRef<std::path::Path>>(&self, path: P, format: Option<String>, skip_existing: Option<bool>) -> Result<serde_json::Value> {
+        let mut file = std::fs::File::open(path)?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+
+        self.import_topics(&content, format, skip_existing).await
     }
 
     /// 创建 Topic 构建器，用于流畅的 API 设计

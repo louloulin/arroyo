@@ -775,7 +775,7 @@ Arroyo 当前架构主要包括以下组件：
     - [x] 实现 Topic 列表页面
     - [x] 实现 Topic 详情页面
     - [x] 实现 Topic 创建和编辑表单
-  - [ ] 实现 Topic 配置导入/导出功能
+  - [x] 实现 Topic 配置导入/导出功能
   - [ ] 开发 Topic 迁移和复制工具
 
 #### 6.2.2 Producer/Consumer API

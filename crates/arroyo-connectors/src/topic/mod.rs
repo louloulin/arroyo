@@ -13,6 +13,7 @@ use crate::{ConnectionType, EmptyConfig};
 
 mod admin;
 mod alert;
+mod export;
 mod health;
 mod metrics;
 mod partition;
@@ -29,6 +30,9 @@ mod admin_tests;
 
 #[cfg(test)]
 mod alert_tests;
+
+#[cfg(test)]
+mod export_tests;
 
 #[cfg(test)]
 mod health_tests;
@@ -53,6 +57,7 @@ mod integration_tests;
 
 pub use admin::TopicAdmin;
 pub use alert::{AlertNotifier, EmailNotifier, TopicAlertManager, WebhookNotifier};
+pub use export::TopicExport;
 pub use health::TopicHealthChecker;
 pub use metrics::TopicMetricsCollector;
 pub use partition::PartitionManager;
