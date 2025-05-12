@@ -42,7 +42,7 @@ mod tests {
             description: Some("Test topic for create/delete".to_string()),
         };
 
-        let topic_info = admin.create_topic(&config).await.expect("Failed to create topic");
+        let topic_info = admin.create_topic(&config, None).await.expect("Failed to create topic");
 
         // 验证 Topic 信息
         assert_eq!(topic_info.name, topic_name);
@@ -58,19 +58,19 @@ mod tests {
         sleep(Duration::from_secs(1)).await;
 
         // 获取 Topic 详情
-        let topic_details = admin.get_topic_details(&topic_name).await.expect("Failed to get topic details");
+        let topic_details = admin.get_topic_details(&topic_name, None).await.expect("Failed to get topic details");
         assert_eq!(topic_details.info.name, topic_name);
         assert_eq!(topic_details.info.partitions, 3);
         assert_eq!(topic_details.partitions.len(), 3);
 
         // 删除 Topic
-        admin.delete_topic(&topic_name).await.expect("Failed to delete topic");
+        admin.delete_topic(&topic_name, None).await.expect("Failed to delete topic");
 
         // 等待 Topic 删除完成
         sleep(Duration::from_secs(1)).await;
 
         // 验证 Topic 已删除
-        let topics = admin.list_topics().await.expect("Failed to list topics");
+        let topics = admin.list_topics(None).await.expect("Failed to list topics");
         assert!(!topics.iter().any(|t| t.name == topic_name));
     }
 
@@ -95,7 +95,7 @@ mod tests {
             description: Some("Test topic for update".to_string()),
         };
 
-        let topic_info = admin.create_topic(&config).await.expect("Failed to create topic");
+        let topic_info = admin.create_topic(&config, None).await.expect("Failed to create topic");
 
         // 验证 Topic 信息
         assert_eq!(topic_info.name, topic_name);
@@ -116,7 +116,7 @@ mod tests {
             description: Some("Updated test topic".to_string()),
         };
 
-        let updated_info = admin.update_topic(&updated_config).await.expect("Failed to update topic");
+        let updated_info = admin.update_topic(&updated_config, None).await.expect("Failed to update topic");
 
         // 验证更新后的 Topic 信息
         assert_eq!(updated_info.name, topic_name);
@@ -128,7 +128,7 @@ mod tests {
         assert_eq!(updated_info.description, Some("Updated test topic".to_string()));
 
         // 删除 Topic
-        admin.delete_topic(&topic_name).await.expect("Failed to delete topic");
+        admin.delete_topic(&topic_name, None).await.expect("Failed to delete topic");
     }
 
     #[tokio::test]
@@ -152,18 +152,18 @@ mod tests {
             description: Some("Test topic for list".to_string()),
         };
 
-        admin.create_topic(&config).await.expect("Failed to create topic");
+        admin.create_topic(&config, None).await.expect("Failed to create topic");
 
         // 等待 Topic 创建完成
         sleep(Duration::from_secs(1)).await;
 
         // 获取 Topic 列表
-        let topics = admin.list_topics().await.expect("Failed to list topics");
-        
+        let topics = admin.list_topics(None).await.expect("Failed to list topics");
+
         // 验证新创建的 Topic 在列表中
         assert!(topics.iter().any(|t| t.name == topic_name));
 
         // 删除 Topic
-        admin.delete_topic(&topic_name).await.expect("Failed to delete topic");
+        admin.delete_topic(&topic_name, None).await.expect("Failed to delete topic");
     }
 }

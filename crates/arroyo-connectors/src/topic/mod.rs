@@ -14,6 +14,7 @@ use crate::{ConnectionType, EmptyConfig};
 mod admin;
 mod health;
 mod partition;
+mod permission;
 mod quota;
 mod sink;
 mod source;
@@ -31,6 +32,12 @@ mod health_tests;
 mod quota_tests;
 
 #[cfg(test)]
+mod permission_tests;
+
+#[cfg(test)]
+mod permission_integration_tests;
+
+#[cfg(test)]
 mod partition_tests;
 
 #[cfg(test)]
@@ -39,6 +46,7 @@ mod integration_tests;
 pub use admin::TopicAdmin;
 pub use health::TopicHealthChecker;
 pub use partition::PartitionManager;
+pub use permission::TopicPermissionManager;
 pub use quota::TopicQuotaManager;
 
 pub struct TopicConnector {}

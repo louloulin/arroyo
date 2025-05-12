@@ -78,7 +78,7 @@ mod tests {
             description: Some("Valid test topic".to_string()),
         };
 
-        let result = admin.create_topic(&valid_config).await;
+        let result = admin.create_topic(&valid_config, None).await;
         assert!(result.is_ok(), "Failed to create valid topic: {:?}", result);
 
         // 等待 Topic 创建完成
@@ -97,7 +97,7 @@ mod tests {
             description: Some("Invalid test topic".to_string()),
         };
 
-        let result = admin.create_topic(&invalid_config).await;
+        let result = admin.create_topic(&invalid_config, None).await;
         assert!(result.is_err(), "Created topic with invalid config");
         assert!(
             result.unwrap_err().to_string().contains("exceeds limit"),
@@ -116,7 +116,7 @@ mod tests {
             description: Some("Updated test topic".to_string()),
         };
 
-        let result = admin.update_topic(&update_config).await;
+        let result = admin.update_topic(&update_config, None).await;
         assert!(result.is_err(), "Updated topic with invalid config");
         assert!(
             result.unwrap_err().to_string().contains("exceeds limit"),
@@ -125,7 +125,7 @@ mod tests {
 
         // 清理
         admin
-            .delete_topic(&valid_topic_name)
+            .delete_topic(&valid_topic_name, None)
             .await
             .expect("Failed to delete topic");
     }

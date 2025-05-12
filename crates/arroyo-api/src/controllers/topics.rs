@@ -44,10 +44,11 @@ impl TopicController {
     pub async fn create_topic(
         &self,
         request: CreateTopicRequest,
+        user_id: Option<&str>,
     ) -> Result<impl IntoResponse, ApiError> {
         info!("Creating topic: {}", request.config.name);
 
-        let topic_info = self.admin.create_topic(&request.config).await.map_err(|e| {
+        let topic_info = self.admin.create_topic(&request.config, user_id).await.map_err(|e| {
             error!("Failed to create topic: {}", e);
             ApiError::bad_request(format!("Failed to create topic: {}", e))
         })?;
@@ -56,10 +57,14 @@ impl TopicController {
     }
 
     /// 删除 Topic
-    pub async fn delete_topic(&self, name: String) -> Result<impl IntoResponse, ApiError> {
+    pub async fn delete_topic(
+        &self,
+        name: String,
+        user_id: Option<&str>,
+    ) -> Result<impl IntoResponse, ApiError> {
         info!("Deleting topic: {}", name);
 
-        self.admin.delete_topic(&name).await.map_err(|e| {
+        self.admin.delete_topic(&name, user_id).await.map_err(|e| {
             error!("Failed to delete topic: {}", e);
             ApiError::bad_request(format!("Failed to delete topic: {}", e))
         })?;
@@ -72,6 +77,7 @@ impl TopicController {
         &self,
         name: String,
         request: UpdateTopicRequest,
+        user_id: Option<&str>,
     ) -> Result<impl IntoResponse, ApiError> {
         info!("Updating topic: {}", name);
 
@@ -83,7 +89,7 @@ impl TopicController {
             )));
         }
 
-        let topic_info = self.admin.update_topic(&request.config).await.map_err(|e| {
+        let topic_info = self.admin.update_topic(&request.config, user_id).await.map_err(|e| {
             error!("Failed to update topic: {}", e);
             ApiError::bad_request(format!("Failed to update topic: {}", e))
         })?;
@@ -92,10 +98,13 @@ impl TopicController {
     }
 
     /// 获取 Topic 列表
-    pub async fn list_topics(&self) -> Result<impl IntoResponse, ApiError> {
+    pub async fn list_topics(
+        &self,
+        user_id: Option<&str>,
+    ) -> Result<impl IntoResponse, ApiError> {
         info!("Listing topics");
 
-        let topics = self.admin.list_topics().await.map_err(|e| {
+        let topics = self.admin.list_topics(user_id).await.map_err(|e| {
             error!("Failed to list topics: {}", e);
             ApiError::internal_error(format!("Failed to list topics: {}", e))
         })?;
@@ -107,10 +116,14 @@ impl TopicController {
     }
 
     /// 获取 Topic 详情
-    pub async fn get_topic_details(&self, name: String) -> Result<impl IntoResponse, ApiError> {
+    pub async fn get_topic_details(
+        &self,
+        name: String,
+        user_id: Option<&str>,
+    ) -> Result<impl IntoResponse, ApiError> {
         info!("Getting topic details: {}", name);
 
-        let topic = self.admin.get_topic_details(&name).await.map_err(|e| {
+        let topic = self.admin.get_topic_details(&name, user_id).await.map_err(|e| {
             error!("Failed to get topic details: {}", e);
             ApiError::bad_request(format!("Failed to get topic details: {}", e))
         })?;
@@ -155,36 +168,46 @@ impl TopicController {
 pub async fn create_topic(
     State(state): State<crate::rest::AppState>,
     Json(request): Json<CreateTopicRequest>,
+    // 在实际应用中，这里应该从认证中间件获取用户 ID
+    // 这里简化处理，使用 None 表示未认证用户
 ) -> Result<impl IntoResponse, ApiError> {
-    state.topic_controller.create_topic(request).await
+    state.topic_controller.create_topic(request, None).await
 }
 
 pub async fn delete_topic(
     State(state): State<crate::rest::AppState>,
     Path(name): Path<String>,
+    // 在实际应用中，这里应该从认证中间件获取用户 ID
+    // 这里简化处理，使用 None 表示未认证用户
 ) -> Result<impl IntoResponse, ApiError> {
-    state.topic_controller.delete_topic(name).await
+    state.topic_controller.delete_topic(name, None).await
 }
 
 pub async fn update_topic(
     State(state): State<crate::rest::AppState>,
     Path(name): Path<String>,
     Json(request): Json<UpdateTopicRequest>,
+    // 在实际应用中，这里应该从认证中间件获取用户 ID
+    // 这里简化处理，使用 None 表示未认证用户
 ) -> Result<impl IntoResponse, ApiError> {
-    state.topic_controller.update_topic(name, request).await
+    state.topic_controller.update_topic(name, request, None).await
 }
 
 pub async fn list_topics(
     State(state): State<crate::rest::AppState>,
+    // 在实际应用中，这里应该从认证中间件获取用户 ID
+    // 这里简化处理，使用 None 表示未认证用户
 ) -> Result<impl IntoResponse, ApiError> {
-    state.topic_controller.list_topics().await
+    state.topic_controller.list_topics(None).await
 }
 
 pub async fn get_topic_details(
     State(state): State<crate::rest::AppState>,
     Path(name): Path<String>,
+    // 在实际应用中，这里应该从认证中间件获取用户 ID
+    // 这里简化处理，使用 None 表示未认证用户
 ) -> Result<impl IntoResponse, ApiError> {
-    state.topic_controller.get_topic_details(name).await
+    state.topic_controller.get_topic_details(name, None).await
 }
 
 pub async fn check_topic_health(

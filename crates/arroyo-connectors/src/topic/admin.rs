@@ -2,6 +2,7 @@ use anyhow::{anyhow, bail, Result};
 use arroyo_rpc::api_types::topics::{
     TopicConfig, TopicDetails, TopicInfo, TopicPartitionInfo,
 };
+use crate::topic::permission::PermissionLevel;
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::config::ClientConfig;
 use std::collections::HashMap;
@@ -16,6 +17,8 @@ pub struct TopicAdmin {
     admin_client: AdminClient<DefaultClientContext>,
     /// 配额管理器
     quota_manager: Option<crate::topic::TopicQuotaManager>,
+    /// 权限管理器
+    pub permission_manager: Option<crate::topic::TopicPermissionManager>,
 }
 
 // 使用 rdkafka 的默认客户端上下文
@@ -38,10 +41,14 @@ impl TopicAdmin {
             }
         };
 
+        // 创建权限管理器
+        let permission_manager = Some(crate::topic::TopicPermissionManager::new());
+
         Ok(Self {
             server: server.to_string(),
             admin_client,
             quota_manager,
+            permission_manager,
         })
     }
 
@@ -51,11 +58,30 @@ impl TopicAdmin {
         self
     }
 
+    /// 设置权限管理器
+    pub fn with_permission_manager(mut self, permission_manager: crate::topic::TopicPermissionManager) -> Self {
+        self.permission_manager = Some(permission_manager);
+        self
+    }
+
+    /// 检查用户权限
+    pub async fn check_permission(&self, topic_name: &str, user_id: &str, required_permission: crate::topic::permission::PermissionLevel) -> Result<()> {
+        if let Some(permission_manager) = &self.permission_manager {
+            permission_manager.check_permission(topic_name, user_id, required_permission).await?;
+        }
+        Ok(())
+    }
+
     /// 创建 Topic
-    pub async fn create_topic(&self, config: &TopicConfig) -> Result<TopicInfo> {
+    pub async fn create_topic(&self, config: &TopicConfig, user_id: Option<&str>) -> Result<TopicInfo> {
         // 检查 Topic 是否已存在
         if self.topic_exists(&config.name).await? {
             bail!("Topic '{}' already exists", config.name);
+        }
+
+        // 检查用户权限
+        if let Some(user_id) = user_id {
+            self.check_permission(&config.name, user_id, crate::topic::permission::PermissionLevel::Admin).await?;
         }
 
         // 检查配额和限制
@@ -114,10 +140,15 @@ impl TopicAdmin {
     }
 
     /// 删除 Topic
-    pub async fn delete_topic(&self, name: &str) -> Result<()> {
+    pub async fn delete_topic(&self, name: &str, user_id: Option<&str>) -> Result<()> {
         // 检查 Topic 是否存在
         if !self.topic_exists(name).await? {
             bail!("Topic '{}' does not exist", name);
+        }
+
+        // 检查用户权限
+        if let Some(user_id) = user_id {
+            self.check_permission(name, user_id, crate::topic::permission::PermissionLevel::Admin).await?;
         }
 
         // 执行删除操作
@@ -131,10 +162,15 @@ impl TopicAdmin {
     }
 
     /// 更新 Topic 配置
-    pub async fn update_topic(&self, config: &TopicConfig) -> Result<TopicInfo> {
+    pub async fn update_topic(&self, config: &TopicConfig, user_id: Option<&str>) -> Result<TopicInfo> {
         // 检查 Topic 是否存在
         if !self.topic_exists(&config.name).await? {
             bail!("Topic '{}' does not exist", config.name);
+        }
+
+        // 检查用户权限
+        if let Some(user_id) = user_id {
+            self.check_permission(&config.name, user_id, crate::topic::permission::PermissionLevel::Admin).await?;
         }
 
         // 检查配额和限制
@@ -185,7 +221,7 @@ impl TopicAdmin {
     }
 
     /// 获取 Topic 列表
-    pub async fn list_topics(&self) -> Result<Vec<TopicInfo>> {
+    pub async fn list_topics(&self, user_id: Option<&str>) -> Result<Vec<TopicInfo>> {
         // 获取元数据
         let metadata = self
             .admin_client
@@ -200,6 +236,17 @@ impl TopicAdmin {
                 continue;
             }
 
+            // 检查用户权限
+            if let Some(user_id) = user_id {
+                // 如果用户没有读取权限，跳过该 Topic
+                if let Some(permission_manager) = &self.permission_manager {
+                    let permission = permission_manager.get_topic_permission(topic.name(), user_id).await;
+                    if !permission.includes(&crate::topic::permission::PermissionLevel::Read) {
+                        continue;
+                    }
+                }
+            }
+
             let config = self.get_topic_config(topic.name()).await?;
             topics.push(config);
         }
@@ -208,10 +255,15 @@ impl TopicAdmin {
     }
 
     /// 获取 Topic 详情
-    pub async fn get_topic_details(&self, name: &str) -> Result<TopicDetails> {
+    pub async fn get_topic_details(&self, name: &str, user_id: Option<&str>) -> Result<TopicDetails> {
         // 检查 Topic 是否存在
         if !self.topic_exists(name).await? {
             bail!("Topic '{}' does not exist", name);
+        }
+
+        // 检查用户权限
+        if let Some(user_id) = user_id {
+            self.check_permission(name, user_id, crate::topic::permission::PermissionLevel::Read).await?;
         }
 
         // 获取元数据

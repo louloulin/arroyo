@@ -48,6 +48,8 @@ pub mod job_controller;
 pub mod schedulers;
 mod states;
 pub mod dynamic_scaling;
+#[cfg(test)]
+mod dynamic_scaling_test;
 
 const TTL_PIPELINE_CLEANUP_TIME: Duration = Duration::from_secs(60 * 60);
 

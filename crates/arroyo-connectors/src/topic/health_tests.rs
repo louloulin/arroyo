@@ -83,7 +83,7 @@ mod tests {
         };
 
         let _topic_info = admin
-            .create_topic(&config)
+            .create_topic(&config, None)
             .await
             .expect("Failed to create topic");
 
@@ -106,7 +106,7 @@ mod tests {
 
         // 删除 Topic
         admin
-            .delete_topic(&topic_name)
+            .delete_topic(&topic_name, None)
             .await
             .expect("Failed to delete topic");
     }
