@@ -48,5 +48,5 @@ pub mod util;
 pub use client::ArroyoClient;
 pub use consumer::{Consumer, ConsumerBuilder, ConsumerOptions};
 pub use error::{Error, Result};
-pub use producer::{Producer, ProducerBuilder, ProducerOptions};
+pub use producer::{Producer, ProducerBuilder, ProducerOptions, SendCallback, SendResult};
 pub use topic::{TopicBuilder, TopicOptions};
