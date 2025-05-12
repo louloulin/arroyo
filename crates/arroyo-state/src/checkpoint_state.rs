@@ -24,7 +24,7 @@ use crate::{
         expiring_time_key_map::ExpiringTimeKeyTable, global_keyed_map::GlobalKeyedTable,
         ErasedTable,
     },
-    BackingStore, StateBackend,
+    BackingStore,
 };
 
 #[derive(Debug, Clone)]
@@ -235,7 +235,7 @@ impl CheckpointState {
 
     pub async fn checkpoint_finished(&mut self, c: TaskCheckpointCompletedReq) -> Result<()> {
         debug!(
-            message = "Checkpoint finished", 
+            message = "Checkpoint finished",
             checkpoint_id = self.checkpoint_id,
             job_id = *self.job_id,
             epoch = self.epoch,
@@ -325,7 +325,11 @@ impl CheckpointState {
                         .insert(table.clone(), committing_data);
                 }
             }
-            StateBackend::write_operator_checkpoint_metadata(OperatorCheckpointMetadata {
+            // Use ParquetBackend implementation
+            let backend = crate::parquet::ParquetBackend;
+
+            // Call the method on the backend instance
+            backend.write_operator_checkpoint_metadata(OperatorCheckpointMetadata {
                 start_time: to_micros(operator_state.start_time.unwrap()),
                 finish_time: to_micros(operator_state.finish_time.unwrap()),
                 table_checkpoint_metadata,
@@ -359,7 +363,12 @@ impl CheckpointState {
 
     pub async fn save_state(&self) -> Result<()> {
         let finish_time = SystemTime::now();
-        StateBackend::write_checkpoint_metadata(CheckpointMetadata {
+
+        // Use ParquetBackend implementation
+        let backend = crate::parquet::ParquetBackend;
+
+        // Call the method on the backend instance
+        backend.write_checkpoint_metadata(CheckpointMetadata {
             job_id: self.job_id.to_string(),
             epoch: self.epoch,
             min_epoch: self.min_epoch,

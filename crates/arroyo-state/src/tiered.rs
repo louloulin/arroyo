@@ -4,6 +4,7 @@ use arroyo_rpc::grpc::rpc::{
     CheckpointMetadata, OperatorCheckpointMetadata,
 };
 use arroyo_storage::StorageProvider;
+use futures::StreamExt;
 use prost::Message;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -136,13 +137,23 @@ impl MemoryCache {
         let mut entries: Vec<_> = self.cache.iter().collect();
         entries.sort_by_key(|(_, entry)| entry.last_accessed);
 
-        // 移除最旧的条目，直到有足够的空间
-        for (key, entry) in entries {
-            self.current_size -= entry.size;
-            self.cache.remove(key);
+        // 收集要移除的键
+        let mut keys_to_remove = Vec::new();
+        let mut freed_space = 0;
 
-            if self.current_size + required_size <= self.max_size {
+        for (key, entry) in &entries {
+            keys_to_remove.push((*key).clone());
+            freed_space += entry.size;
+
+            if self.current_size - freed_space + required_size <= self.max_size {
                 break;
+            }
+        }
+
+        // 移除收集的键
+        for key in keys_to_remove {
+            if let Some(entry) = self.cache.remove(&key) {
+                self.current_size -= entry.size;
             }
         }
     }
@@ -261,6 +272,150 @@ impl TieredStateBackend {
 
         Ok(())
     }
+
+    /// 从远程存储读取
+    async fn read_from_remote(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        match self.remote_storage.get(key).await {
+            Ok(data) => Ok(Some(data.to_vec())),
+            Err(e) if matches!(e, arroyo_storage::StorageError::ObjectStore(object_store::Error::NotFound { .. })) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// 写入远程存储
+    async fn write_to_remote(&self, key: &str, data: &[u8]) -> Result<()> {
+        self.remote_storage.put(key, data.to_vec()).await?;
+        Ok(())
+    }
+
+    /// 获取状态数据，使用分层策略
+    pub async fn get_state(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        // 1. 尝试从内存缓存获取
+        if self.config.enable_memory_tier {
+            if let Some(data) = {
+                let mut cache = self.memory_cache.write().await;
+                if let Some(cache) = cache.as_mut() {
+                    cache.get(key)
+                } else {
+                    None
+                }
+            } {
+                return Ok(Some(data));
+            }
+        }
+
+        // 2. 尝试从本地磁盘获取
+        if self.config.enable_local_disk_tier {
+            if let Some(data) = self.read_from_local_disk(key).await? {
+                // 将数据添加到内存缓存
+                if self.config.enable_memory_tier {
+                    let mut cache = self.memory_cache.write().await;
+                    if let Some(cache) = cache.as_mut() {
+                        cache.put(key.to_string(), data.clone());
+                    }
+                }
+                return Ok(Some(data));
+            }
+        }
+
+        // 3. 从远程存储获取
+        if let Some(data) = self.read_from_remote(key).await? {
+            // 将数据添加到本地缓存
+            if self.config.enable_local_disk_tier {
+                let _ = self.write_to_local_disk(key, &data).await;
+            }
+
+            // 将数据添加到内存缓存
+            if self.config.enable_memory_tier {
+                let mut cache = self.memory_cache.write().await;
+                if let Some(cache) = cache.as_mut() {
+                    cache.put(key.to_string(), data.clone());
+                }
+            }
+
+            return Ok(Some(data));
+        }
+
+        Ok(None)
+    }
+
+    /// 存储状态数据，使用分层策略
+    pub async fn put_state(&self, key: &str, data: &[u8]) -> Result<()> {
+        // 1. 写入远程存储
+        self.write_to_remote(key, data).await?;
+
+        // 2. 写入本地磁盘缓存
+        if self.config.enable_local_disk_tier {
+            self.write_to_local_disk(key, data).await?;
+        }
+
+        // 3. 写入内存缓存
+        if self.config.enable_memory_tier {
+            let mut cache = self.memory_cache.write().await;
+            if let Some(cache) = cache.as_mut() {
+                cache.put(key.to_string(), data.to_vec());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 删除状态数据
+    pub async fn delete_state(&self, key: &str) -> Result<()> {
+        // 1. 从远程存储删除
+        if let Err(e) = self.remote_storage.delete_if_present(key).await {
+            warn!("Failed to delete from remote storage: {}", e);
+        }
+
+        // 2. 从本地磁盘缓存删除
+        if self.config.enable_local_disk_tier {
+            let path = self.get_local_path(key);
+            if path.exists() {
+                if let Err(e) = fs::remove_file(path).await {
+                    warn!("Failed to delete from local disk: {}", e);
+                }
+            }
+        }
+
+        // 3. 从内存缓存删除
+        if self.config.enable_memory_tier {
+            let mut cache = self.memory_cache.write().await;
+            if let Some(cache) = cache.as_mut() {
+                if let Some(entry) = cache.cache.remove(key) {
+                    cache.current_size -= entry.size;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 清理过期的缓存
+    pub async fn cleanup_expired_cache(&self) -> Result<()> {
+        // 清理内存缓存
+        if self.config.enable_memory_tier {
+            let mut cache = self.memory_cache.write().await;
+            if let Some(cache) = cache.as_mut() {
+                cache.cleanup_expired(self.config.cache_expiration);
+            }
+        }
+
+        // 清理本地磁盘缓存
+        if self.config.enable_local_disk_tier {
+            self.cleanup_local_disk(self.config.cache_expiration).await?;
+        }
+
+        Ok(())
+    }
+
+    /// 预热缓存，将指定键的数据加载到缓存中
+    pub async fn warm_up_cache(&self, keys: &[&str]) -> Result<()> {
+        for key in keys {
+            // 只需调用get_state，它会自动将数据加载到缓存中
+            let _ = self.get_state(key).await?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -296,7 +451,7 @@ impl BackingStore for TieredStateBackend {
                 let metadata = OperatorCheckpointMetadata::decode(&data[..])?;
                 Ok(Some(metadata))
             }
-            Err(arroyo_storage::StorageError::NotFound) => Ok(None),
+            Err(e) if matches!(e, arroyo_storage::StorageError::ObjectStore(object_store::Error::NotFound { .. })) => Ok(None),
             Err(e) => Err(e.into()),
         }
     }
@@ -346,7 +501,17 @@ impl BackingStore for TieredStateBackend {
         // 删除旧的检查点
         for epoch in old_min_epoch..new_min_epoch {
             let path = format!("{}/checkpoints/checkpoint-{:0>7}", metadata.job_id, epoch);
-            let _ = storage_client.delete_prefix(path.as_str()).await;
+            // Delete all files with this prefix by listing and deleting each one
+            if let Ok(list) = storage_client.list(true).await {
+                let mut stream = list;
+                while let Some(result) = stream.next().await {
+                    if let Ok(file_path) = result {
+                        if file_path.to_string().starts_with(&path) {
+                            let _ = storage_client.delete_if_present(file_path).await;
+                        }
+                    }
+                }
+            }
         }
 
         Ok(())

@@ -143,7 +143,9 @@ impl IncrementalCheckpointManager {
         changes: HashMap<String, Vec<u8>>,
     ) -> Result<()> {
         // 获取基础检查点元数据
-        let base_metadata = crate::StateBackend::load_checkpoint_metadata(&self.job_id, base_epoch).await?;
+        // 使用ParquetBackend实现
+        let backend = crate::parquet::ParquetBackend;
+        let base_metadata = backend.load_checkpoint_metadata(&self.job_id, base_epoch).await?;
 
         // 创建增量文件路径
         let incremental_path = format!(

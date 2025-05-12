@@ -18,8 +18,7 @@ use tokio::sync::{
 };
 
 use crate::{
-    get_storage_provider, tables::global_keyed_map::GlobalKeyedTable, BackingStore, StateBackend,
-    StateMessage,
+    get_storage_provider, tables::global_keyed_map::GlobalKeyedTable, BackingStore, StateMessage,
 };
 use crate::{CheckpointMessage, TableData};
 use arroyo_rpc::grpc::rpc::CheckpointMetadata;
@@ -236,7 +235,9 @@ impl TableManager {
     ) -> Result<(Self, Option<SystemTime>)> {
         let (watermark, checkpoint_metadata) = if let Some(metadata) = restore_from {
             let (watermark, operator_metadata) = {
-                let metadata = StateBackend::load_operator_metadata(
+                // 使用ParquetBackend实现
+                let backend = crate::parquet::ParquetBackend;
+                let metadata = backend.load_operator_metadata(
                     &task_info.job_id,
                     &task_info.operator_id,
                     metadata.epoch,

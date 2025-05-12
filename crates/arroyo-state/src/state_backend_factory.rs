@@ -1,12 +1,10 @@
 use crate::parquet::ParquetBackend;
-use crate::tiered::{StorageTier, TieredStateBackend, TieredStorageConfig};
+use crate::tiered::{TieredStateBackend, TieredStorageConfig};
 use crate::BackingStore;
 use anyhow::Result;
 use arroyo_rpc::config::{config, StateBackendType};
 use arroyo_storage::StorageProvider;
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 /// 状态后端工厂
 ///
@@ -36,7 +34,7 @@ impl StateBackendFactory {
                     local_disk_path: state_config.disk_cache_path.clone(),
                     local_disk_max_size: state_config.disk_cache_size,
                     remote_storage: storage_provider,
-                    cache_expiration: state_config.cache_expiration.duration,
+                    cache_expiration: *state_config.cache_expiration,
                 };
 
                 Ok(Box::new(TieredStateBackend::new(tiered_config)))
@@ -62,7 +60,7 @@ impl StateBackendFactory {
             storage_provider,
             job_id,
             state_config.max_incremental_checkpoints,
-            state_config.incremental_checkpoint_interval.0,
+            *state_config.incremental_checkpoint_interval,
         );
 
         Ok(Some(manager))
