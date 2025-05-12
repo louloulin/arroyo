@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 use tokio::time::MissedTickBehavior;
 
-use tracing::error;
+use tracing::{error, info};
 
 use crate::states::finishing::Finishing;
 use crate::states::recovering::Recovering;
@@ -64,9 +64,23 @@ impl State for Running {
                             for (node_id, p) in &c.parallelism_overrides {
                                 if let Some(actual) = job_controller.operator_parallelism(*node_id){
                                     if actual != *p {
+                                        // 使用动态扩展模式
+                                        let use_dynamic_scaling = config().controller.dynamic_scaling.unwrap_or(true);
+                                        let scaling_mode = if use_dynamic_scaling {
+                                            crate::states::rescaling::ScalingMode::Dynamic
+                                        } else {
+                                            crate::states::rescaling::ScalingMode::Traditional
+                                        };
+
+                                        info!(
+                                            "Initiating rescaling with mode {:?} for job {}",
+                                            scaling_mode,
+                                            *ctx.config.id
+                                        );
+
                                         return Ok(Transition::next(
                                             *self,
-                                            Rescaling {}
+                                            crate::states::rescaling::Rescaling::new(scaling_mode)
                                         ));
                                     }
                                 }

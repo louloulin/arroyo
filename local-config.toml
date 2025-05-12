@@ -80,13 +80,13 @@ type = "postgres"
 [database.postgres]
 database-name = "arroyo"
 host = "localhost"
-port = 5433
+port = 5437
 user = "arroyo"
 password = "arroyo"
 
 [logging]
-format = "plaintext" # option: plaintext / json / logfmt 
+format = "plaintext" # option: plaintext / json / logfmt
 nonblocking = false
 enable-file-line = false
-enable-file-name = false 
+enable-file-name = false
 buffered-lines-limit = 4096

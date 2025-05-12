@@ -102,6 +102,105 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn test_tiered_state_data_operations() -> Result<()> {
+        // 创建临时目录
+        let temp_dir = tempdir()?;
+        let temp_path = temp_dir.path().to_path_buf();
+
+        // 创建本地存储提供者
+        let storage_url = format!("file://{}", temp_path.to_string_lossy());
+        let storage_provider = Arc::new(StorageProvider::for_url(&storage_url).await?);
+
+        // 创建分层状态后端配置
+        let config = TieredStorageConfig {
+            enable_memory_tier: true,
+            memory_tier_max_size: 10 * 1024 * 1024, // 10MB
+            enable_local_disk_tier: true,
+            local_disk_path: temp_path.clone(),
+            local_disk_max_size: 100 * 1024 * 1024, // 100MB
+            remote_storage: storage_provider.clone(),
+            cache_expiration: Duration::from_secs(60), // 1 minute
+        };
+
+        // 创建分层状态后端
+        let backend = TieredStateBackend::new(config);
+
+        // 测试数据
+        let key1 = "test-key-1";
+        let value1 = b"test-value-1".to_vec();
+        let key2 = "test-key-2";
+        let value2 = b"test-value-2".to_vec();
+
+        // 测试 put_state 和 get_state
+        backend.put_state(key1, &value1).await?;
+        let retrieved_value1 = backend.get_state(key1).await?;
+        assert!(retrieved_value1.is_some());
+        assert_eq!(retrieved_value1.unwrap(), value1);
+
+        // 测试缓存层级
+        // 1. 首先从远程存储获取
+        let retrieved_value1 = backend.get_state(key1).await?;
+        assert!(retrieved_value1.is_some());
+        assert_eq!(retrieved_value1.unwrap(), value1);
+
+        // 2. 然后应该从内存缓存获取
+        // 为了测试这一点，我们可以临时修改远程存储中的值，但不更新缓存
+        // 如果仍然获取到原始值，说明是从缓存获取的
+        storage_provider.put(key1, b"modified-value".to_vec()).await?;
+        let cached_value1 = backend.get_state(key1).await?;
+        assert!(cached_value1.is_some());
+        assert_eq!(cached_value1.unwrap(), value1); // 应该仍然是原始值
+
+        // 测试 delete_state
+        backend.delete_state(key1).await?;
+        let deleted_value = backend.get_state(key1).await?;
+        assert!(deleted_value.is_none());
+
+        // 测试多个键值对
+        backend.put_state(key1, &value1).await?;
+        backend.put_state(key2, &value2).await?;
+
+        let retrieved_value1 = backend.get_state(key1).await?;
+        let retrieved_value2 = backend.get_state(key2).await?;
+
+        assert!(retrieved_value1.is_some());
+        assert!(retrieved_value2.is_some());
+        assert_eq!(retrieved_value1.unwrap(), value1);
+        assert_eq!(retrieved_value2.unwrap(), value2);
+
+        // 测试缓存预热
+        backend.delete_state(key1).await?;
+        backend.delete_state(key2).await?;
+
+        // 重新添加数据到远程存储
+        storage_provider.put(key1, value1.clone()).await?;
+        storage_provider.put(key2, value2.clone()).await?;
+
+        // 预热缓存
+        backend.warm_up_cache(&[key1, key2]).await?;
+
+        // 验证数据已加载到缓存
+        let cached_value1 = backend.get_state(key1).await?;
+        let cached_value2 = backend.get_state(key2).await?;
+
+        assert!(cached_value1.is_some());
+        assert!(cached_value2.is_some());
+        assert_eq!(cached_value1.unwrap(), value1);
+        assert_eq!(cached_value2.unwrap(), value2);
+
+        // 测试缓存清理
+        backend.cleanup_expired_cache().await?;
+
+        // 由于我们设置的过期时间是60秒，而测试运行时间远小于这个值
+        // 所以缓存应该仍然有效
+        let cached_value1 = backend.get_state(key1).await?;
+        assert!(cached_value1.is_some());
+        assert_eq!(cached_value1.unwrap(), value1);
+
+        Ok(())
+    }
+
     // 跳过这个测试，因为它需要更多的修改来适应新的存储后端结构
     #[tokio::test]
     #[ignore]

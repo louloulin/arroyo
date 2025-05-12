@@ -29,6 +29,7 @@ pub mod incremental_checkpoint;
 pub mod state_backend_factory;
 pub(crate) mod schemas;
 pub mod tables;
+pub mod two_phase_commit;
 
 #[cfg(test)]
 pub mod tests;
@@ -198,4 +199,12 @@ pub(crate) async fn get_storage_provider() -> Result<&'static Arc<StorageProvide
                 .map(Arc::new)
         })
         .await
+}
+
+/// 获取状态后端实例
+pub async fn get_state_backend(_job_id: &str) -> Result<Arc<StateBackend>> {
+    // 创建状态后端
+    let state_backend = Arc::new(parquet::ParquetBackend);
+
+    Ok(state_backend)
 }

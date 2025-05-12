@@ -216,8 +216,13 @@ impl Program {
 
         let checkpoint_metadata = if let Some(epoch) = restore_epoch {
             info!("Restoring checkpoint {} for job {}", epoch, job_id);
+
+            // 获取状态后端
+            let state_backend = arroyo_state::get_state_backend(job_id).await
+                .unwrap_or_else(|_| panic!("failed to get state backend for job {}", job_id));
+
             Some(
-                StateBackend::load_checkpoint_metadata(job_id, epoch)
+                state_backend.load_checkpoint_metadata(job_id, epoch)
                     .await
                     .unwrap_or_else(|_| {
                         panic!("failed to load checkpoint metadata for epoch {}", epoch)

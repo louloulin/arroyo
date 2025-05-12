@@ -8,7 +8,7 @@ default:
 # 启动PostgreSQL容器
 start-postgres:
     @echo "启动PostgreSQL容器..."
-    docker run --name arroyo-postgres -e POSTGRES_USER=arroyo -e POSTGRES_PASSWORD=arroyo -e POSTGRES_DB=arroyo -p 5433:5432 -d postgres:14 || echo "PostgreSQL容器可能已经在运行"
+    docker run --name arroyo-postgres -e POSTGRES_USER=arroyo -e POSTGRES_PASSWORD=arroyo -e POSTGRES_DB=arroyo -p 5437:5432 -d postgres:14 || echo "PostgreSQL容器可能已经在运行"
     @echo "等待PostgreSQL启动..."
     sleep 5
 

@@ -47,6 +47,7 @@ use tracing::{debug, info, warn};
 pub mod job_controller;
 pub mod schedulers;
 mod states;
+pub mod dynamic_scaling;
 
 const TTL_PIPELINE_CLEANUP_TIME: Duration = Duration::from_secs(60 * 60);
 

@@ -38,6 +38,7 @@ http-port = 5115
 bind-address = "0.0.0.0"
 rpc-port = 5116
 scheduler = "process"
+dynamic-scaling = true
 
 [compiler]
 bind-address = "0.0.0.0"

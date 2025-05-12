@@ -1,7 +1,7 @@
 [main]
 db_type = "Postgres"
 db_host = "localhost"
-db_port = "5433"
+db_port = "5437"
 db_user = "arroyo"
 db_pass = "arroyo"
 db_name = "arroyo"

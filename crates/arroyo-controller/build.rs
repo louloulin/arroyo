@@ -18,12 +18,12 @@ fn main() -> Result<(), Error> {
     let mut client = Client::configure()
         .dbname("arroyo")
         .host("localhost")
-        .port(5433)  // 使用Docker容器映射的端口
+        .port(5437)  // 使用Docker容器映射的端口
         .user("arroyo")
         .password("arroyo")
         .connect(NoTls)
         .unwrap_or_else(|_| {
-            panic!("Could not connect to postgres: arroyo:arroyo@localhost:5433/arroyo")
+            panic!("Could not connect to postgres: arroyo:arroyo@localhost:5437/arroyo")
         });
 
     let mut sqlite =

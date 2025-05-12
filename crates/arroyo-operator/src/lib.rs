@@ -22,6 +22,7 @@ pub mod context;
 pub mod inq_reader;
 pub mod operator;
 pub mod udfs;
+pub mod two_phase_commit;
 
 pub trait TimerT: Data + PartialEq + Eq + 'static {}
 

@@ -291,6 +291,9 @@ pub struct ControllerConfig {
 
     /// The scheduler to use
     pub scheduler: Scheduler,
+
+    /// Whether to enable dynamic scaling (without job restart)
+    pub dynamic_scaling: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
