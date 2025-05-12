@@ -14,7 +14,7 @@ import {
 } from '@chakra-ui/react';
 
 import { Link, Outlet, useLinkClickHandler, useMatch } from 'react-router-dom';
-import { FiGitBranch, FiHome, FiLink } from 'react-icons/fi';
+import { FiGitBranch, FiHome, FiLink, FiList } from 'react-icons/fi';
 import { CloudSidebar, UserProfile } from './lib/CloudComponents';
 import { usePing } from './lib/data_fetching';
 import ApiUnavailable from './routes/not_found/ApiUnavailable';
@@ -110,6 +110,12 @@ const Sidebar = ({
                   label="Pipelines"
                   to="pipelines"
                   icon={FiGitBranch}
+                  collapsed={collapsed}
+                />
+                <NavButton
+                  label="Topics"
+                  to="topics"
+                  icon={FiList}
                   collapsed={collapsed}
                 />
               </Stack>

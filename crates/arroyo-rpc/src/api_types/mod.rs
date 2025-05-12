@@ -1,6 +1,7 @@
 use alerts::*;
 use checkpoints::*;
 use connections::*;
+use dashboards::*;
 use metrics::*;
 use partitions::*;
 use pipelines::*;
@@ -15,6 +16,7 @@ use utoipa::{IntoParams, ToSchema};
 pub mod alerts;
 pub mod checkpoints;
 pub mod connections;
+pub mod dashboards;
 pub mod metrics;
 pub mod partitions;
 pub mod pipelines;

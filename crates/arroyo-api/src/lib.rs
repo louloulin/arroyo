@@ -15,7 +15,7 @@ use tower_http::compression::{CompressionLayer, DefaultPredicate, Predicate};
 use tracing::{error, info};
 use utoipa::OpenApi;
 
-use crate::prql::{convert_prql, __path_convert_prql, PrqlConvertRequest, PrqlConvertResponse};
+use crate::prql::{__path_convert_prql, PrqlConvertRequest, PrqlConvertResponse};
 
 use crate::connection_profiles::{
     __path_create_connection_profile, __path_delete_connection_profile,

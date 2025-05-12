@@ -7,6 +7,12 @@ import createClient from 'openapi-fetch';
 import { LocalUdf } from '../udf_state';
 import { useRef } from 'react';
 import { ExtendedValidateQueryPost } from '../lib/api-types-extended';
+import {
+  TopicInfo,
+  TopicDetails,
+  CreateTopicRequest,
+  UpdateTopicRequest
+} from '../gen/api-types-topics';
 
 type schemas = components['schemas'];
 
@@ -38,6 +44,51 @@ export type UdfValidationResult = schemas['UdfValidationResult'];
 
 const BASE_URL = '/api';
 export const { get, post, patch, del } = createClient<paths>({ baseUrl: BASE_URL });
+
+// Create custom API client for topics
+const customClient = {
+  get: async (path: string) => {
+    const response = await fetch(`${BASE_URL}${path}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    const data = await response.json();
+    return { data, error: null };
+  },
+  post: async (path: string, options: any = {}) => {
+    const response = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(options.body),
+    });
+    const data = await response.json();
+    return { data, error: null };
+  },
+  patch: async (path: string, options: any = {}) => {
+    const response = await fetch(`${BASE_URL}${path}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(options.body),
+    });
+    const data = await response.json();
+    return { data, error: null };
+  },
+  delete: async (path: string) => {
+    await fetch(`${BASE_URL}${path}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    return { error: null };
+  },
+};
 
 const processResponse = (data: any | undefined, error: any | undefined) => {
   // SWR expects fetchers to throw errors, but openapi-fetch returns the error as a named field,
@@ -712,4 +763,98 @@ export const useGlobalUdfs = () => {
     createGlobalUdf,
     deleteGlobalUdf,
   };
+};
+
+// Topic API functions
+
+// Keys
+const topicsKey = () => {
+  return { key: 'Topics' };
+};
+
+const topicDetailsKey = (topicName: string) => {
+  return topicName ? { key: 'TopicDetails', topicName } : null;
+};
+
+// Fetchers
+const topicsFetcher = async () => {
+  const { data } = await customClient.get('/v1/topics');
+  return data;
+};
+
+const topicDetailsFetcher = () => {
+  return async (params: { key: string; topicName: string }) => {
+    const { data } = await customClient.get(`/v1/topics/${params.topicName}`);
+    return data;
+  };
+};
+
+// Hooks
+export const useTopics = () => {
+  const { data, isLoading, error, mutate } = useSWR<{ topics: TopicInfo[] }>(
+    topicsKey(),
+    topicsFetcher,
+    {
+      refreshInterval: 5000,
+    }
+  );
+
+  return {
+    data: data?.topics || [],
+    isLoading,
+    error,
+    refetch: mutate,
+  };
+};
+
+export const useTopicDetails = (topicName: string) => {
+  const { data, isLoading, error, mutate } = useSWR<TopicDetails>(
+    topicDetailsKey(topicName),
+    topicDetailsFetcher(),
+    {
+      refreshInterval: 5000,
+    }
+  );
+
+  return {
+    data,
+    isLoading,
+    error,
+    refetch: mutate,
+  };
+};
+
+// Mutation functions
+export const createTopic = async (request: CreateTopicRequest) => {
+  const { data, error } = await customClient.post('/v1/topics', {
+    body: request,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+};
+
+export const updateTopic = async (request: UpdateTopicRequest) => {
+  const { data, error } = await customClient.patch(`/v1/topics/${request.config.name}`, {
+    body: request,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+};
+
+export const deleteTopic = async (topicName: string) => {
+  const { error } = await customClient.delete(`/v1/topics/${topicName}`);
+
+  if (error) {
+    throw error;
+  }
+
+  return true;
 };

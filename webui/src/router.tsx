@@ -7,6 +7,9 @@ import { CreateConnection } from './routes/connections/CreateConnection';
 import { PipelinesIndex } from './routes/pipelines/PipelinesIndex';
 import { CreatePipeline } from './routes/pipelines/CreatePipeline';
 import { PipelineDetails } from './routes/pipelines/PipelineDetails';
+import { TopicsIndex } from './routes/topics/TopicsIndex';
+import { TopicDetails } from './routes/topics/TopicDetails';
+import { EditTopic } from './routes/topics/EditTopic';
 import { addCloudRoutes, needsOrgSetup } from './lib/CloudComponents';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import App from './App';
@@ -45,6 +48,18 @@ export function Router(): JSX.Element {
     {
       path: 'pipelines/:pipelineId',
       element: <PipelineDetails />,
+    },
+    {
+      path: 'topics',
+      element: <TopicsIndex />,
+    },
+    {
+      path: 'topics/:topicName',
+      element: <TopicDetails />,
+    },
+    {
+      path: 'topics/:topicName/edit',
+      element: <EditTopic />,
     },
   ];
 

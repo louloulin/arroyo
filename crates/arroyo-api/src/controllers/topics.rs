@@ -1,7 +1,7 @@
 use crate::error::ApiError;
 use arroyo_connectors::topic::{TopicAdmin, TopicHealthChecker};
 use arroyo_rpc::api_types::topics::{
-    CreateTopicRequest, DeleteTopicRequest, TopicDetailsResponse, TopicHealthCheckRequest,
+    CreateTopicRequest, TopicDetailsResponse, TopicHealthCheckRequest,
     TopicHealthCheckResponse, TopicListResponse, UpdateTopicRequest,
 };
 use axum::{
@@ -164,7 +164,7 @@ impl TopicController {
     }
 }
 
-/// Topic 路由处理函数
+/// Create a new topic
 pub async fn create_topic(
     State(state): State<crate::rest::AppState>,
     Json(request): Json<CreateTopicRequest>,
@@ -174,6 +174,7 @@ pub async fn create_topic(
     state.topic_controller.create_topic(request, None).await
 }
 
+/// Delete a topic
 pub async fn delete_topic(
     State(state): State<crate::rest::AppState>,
     Path(name): Path<String>,
@@ -183,6 +184,7 @@ pub async fn delete_topic(
     state.topic_controller.delete_topic(name, None).await
 }
 
+/// Update a topic
 pub async fn update_topic(
     State(state): State<crate::rest::AppState>,
     Path(name): Path<String>,
@@ -193,6 +195,7 @@ pub async fn update_topic(
     state.topic_controller.update_topic(name, request, None).await
 }
 
+/// List all topics
 pub async fn list_topics(
     State(state): State<crate::rest::AppState>,
     // 在实际应用中，这里应该从认证中间件获取用户 ID
@@ -201,6 +204,7 @@ pub async fn list_topics(
     state.topic_controller.list_topics(None).await
 }
 
+/// Get topic details
 pub async fn get_topic_details(
     State(state): State<crate::rest::AppState>,
     Path(name): Path<String>,
@@ -210,6 +214,7 @@ pub async fn get_topic_details(
     state.topic_controller.get_topic_details(name, None).await
 }
 
+/// Check topic health
 pub async fn check_topic_health(
     State(state): State<crate::rest::AppState>,
     Json(request): Json<TopicHealthCheckRequest>,

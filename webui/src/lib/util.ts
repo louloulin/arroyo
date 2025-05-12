@@ -52,6 +52,10 @@ export function datarateFormat(bps: number): string {
 }
 
 export function dataFormat(bytes: number): string {
+  return formatBytes(bytes);
+}
+
+export function formatBytes(bytes: number): string {
   const units = [
     ['B', 1024],
     ['KB', 1024],
