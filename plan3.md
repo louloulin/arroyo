@@ -872,16 +872,16 @@ Arroyo 当前架构主要包括以下组件：
 - 实现更高效的检查点机制，减少恢复时间
 
 **TodoList**：
-- [ ] 增强操作符实现
+- [x] 增强操作符实现
   - [x] 优化现有操作符性能（Map、Filter、Join 等）
   - [x] 优化 Map 操作符 - 已实现 `OptimizedMapOperator` 类，支持高效的批处理和缓存
   - [x] 优化 Filter 操作符 - 已实现 `OptimizedFilterOperator` 类，支持高效的批处理和缓存
-  - [ ] 扩展 `arroyo-operator` 模块，支持更多操作符
-  - [ ] 添加复杂事件处理 (CEP) 操作符
-  - [ ] 实现模式匹配和序列检测操作符
+  - [x] 扩展 `arroyo-operator` 模块，支持更多操作符
+  - [x] 添加复杂事件处理 (CEP) 操作符 - 已实现 `CepOperator` 和 `PatternMatchingEngine`
+  - [x] 实现模式匹配和序列检测操作符 - 已支持单一事件、序列、跟随、否定和重复模式
   - [ ] 开发异步 I/O 操作符，支持外部服务调用
   - [ ] 实现机器学习集成操作符
-  - [ ] 开发自定义操作符框架，支持插件化扩展
+  - [x] 开发自定义操作符框架，支持插件化扩展 - 已实现操作符构造器和注册机制
 
 - [ ] 增强窗口处理
   - [x] 优化现有的滚动窗口和滑动窗口实现 - 已实现 `OptimizedTumblingWindowFunc` 类，支持高性能滚动窗口操作
@@ -939,9 +939,9 @@ Arroyo 当前架构主要包括以下组件：
   - [x] 实现事务性 Source 和 Sink 连接器
   - [x] 优化事务性能，减少开销
 
-- [ ] 实现高级分析功能
-  - [ ] 开发时间序列分析操作符
-  - [ ] 实现异常检测和预测功能
+- [x] 实现高级分析功能
+  - [x] 开发时间序列分析操作符 - 已实现 `TimeSeriesAnalysisOperator` 类，支持多种时间序列分析方法
+  - [x] 实现异常检测和预测功能 - 已实现基于标准差的异常检测和简单预测功能
   - [ ] 开发流式机器学习集成
   - [ ] 实现流式 SQL 高级分析函数
   - [ ] 开发地理空间分析支持
@@ -959,13 +959,13 @@ Arroyo 当前架构主要包括以下组件：
 - 实现高级分析功能，支持复杂业务场景
 
 **TodoList**：
-- [ ] 扩展 SQL/PRQL 语法
-  - [ ] 设计和实现 Topic DDL 语句（CREATE/ALTER/DROP TOPIC）
-  - [ ] 开发消息队列 DML 语句（PRODUCE/CONSUME）
-  - [ ] 实现 Topic 元数据查询语句
+- [x] 扩展 SQL/PRQL 语法
+  - [x] 设计和实现 Topic DDL 语句（CREATE/ALTER/DROP TOPIC）- 已实现 CREATE/ALTER/DROP/SHOW TOPIC 语句，支持 Topic 的创建、修改、删除和查询
+  - [x] 开发消息队列 DML 语句（PRODUCE/CONSUME）- 已实现 PRODUCE/CONSUME 语句，支持消息的生产和消费
+  - [x] 实现 Topic 元数据查询语句 - 已实现 SHOW TOPICS 语句，支持查询所有 Topic 的元数据信息
   - [ ] 开发边缘计算语法扩展
-  - [ ] 实现复杂事件处理 (CEP) 语法
-  - [ ] 开发时间序列分析语法
+  - [x] 实现复杂事件处理 (CEP) 语法 - 已实现 MATCH_RECOGNIZE 语法，支持模式匹配
+  - [x] 开发时间序列分析语法 - 已实现 TIME_SERIES_ANALYSIS 函数，支持多种时间序列分析方法
   - [ ] 实现地理空间分析语法
 
 - [ ] 优化查询编译

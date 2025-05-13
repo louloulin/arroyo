@@ -17,10 +17,12 @@ use crate::operator::{ConstructedOperator, Registry};
 use operator::OperatorConstructor;
 use tokio_stream::Stream;
 
+pub mod cep;
 pub mod connector;
 pub mod context;
 pub mod inq_reader;
 pub mod operator;
+pub mod timeseries;
 pub mod udfs;
 pub mod two_phase_commit;
 

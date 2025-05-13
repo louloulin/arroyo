@@ -42,6 +42,8 @@ pub enum OperatorName {
     UpdatingAggregate,
     ConnectorSource,
     ConnectorSink,
+    ComplexEventProcessing,
+    TimeSeriesAnalysis,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -384,6 +386,7 @@ impl LogicalProgram {
                     OperatorName::ExpressionWatermark
                     | OperatorName::ArrowValue
                     | OperatorName::ArrowKey => continue,
+                    OperatorName::ComplexEventProcessing => "complex-event-processing".to_string(),
                     OperatorName::Join => "join-with-expiration".to_string(),
                     OperatorName::InstantJoin => "windowed-join".to_string(),
                     OperatorName::WindowFunction => "sql-window-function".to_string(),
@@ -404,6 +407,7 @@ impl LogicalProgram {
                         "sql-global-window-aggregate".to_string()
                     }
                     OperatorName::UpdatingAggregate => "sql-updating-aggregate".to_string(),
+                    OperatorName::TimeSeriesAnalysis => "time-series-analysis".to_string(),
                     OperatorName::ConnectorSource => {
                         let Ok(connector_op) = ConnectorOp::decode(&t.operator_config[..]) else {
                             continue;

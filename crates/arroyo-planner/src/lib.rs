@@ -10,6 +10,8 @@ mod plan;
 mod rewriters;
 pub mod schemas;
 mod tables;
+pub mod topic_ddl;
+pub mod queue_dml;
 pub mod types;
 pub mod udafs;
 
@@ -803,8 +805,26 @@ pub async fn parse_and_get_arrow_program(
         .build();
 
     let mut inserts = vec![];
+    let mut topic_ddl_results = vec![];
+
     for statement in parse_sql(&query)? {
         if try_handle_set_variable(&statement, &mut schema_provider)? {
+            continue;
+        }
+
+        // 尝试解析为 Topic DDL 语句
+        if let Some(topic_ddl) = topic_ddl::try_parse_topic_ddl(&statement)? {
+            // 执行 Topic DDL 语句
+            let result = topic_ddl::execute_topic_ddl(topic_ddl).await?;
+            topic_ddl_results.push(result);
+            continue;
+        }
+
+        // 尝试解析为消息队列 DML 语句
+        if let Some(queue_dml) = queue_dml::try_parse_queue_dml(&statement)? {
+            // 执行消息队列 DML 语句
+            let result = queue_dml::execute_queue_dml(queue_dml, &schema_provider).await?;
+            topic_ddl_results.push(result); // 复用 topic_ddl_results 存储结果
             continue;
         }
 
@@ -816,6 +836,28 @@ pub async fn parse_and_get_arrow_program(
                 &mut schema_provider,
             )?);
         };
+    }
+
+    // 如果只有 Topic DDL 语句，返回一个特殊的结果
+    if !topic_ddl_results.is_empty() && inserts.is_empty() {
+        // 创建一个空的程序，但包含 Topic DDL 执行结果
+        let mut program = LogicalProgram::new(
+            arroyo_datastream::logical::Graph::new(),
+            ProgramConfig {
+                udf_dylibs: schema_provider.dylib_udfs.clone(),
+                python_udfs: schema_provider.python_udfs.clone(),
+            },
+        );
+
+        // 添加 Topic DDL 执行结果作为注释
+        for result in &topic_ddl_results {
+            info!("Topic DDL result: {}", result);
+        }
+
+        return Ok(CompiledSql {
+            program,
+            connection_ids: vec![],
+        });
     }
 
     if inserts.is_empty() {

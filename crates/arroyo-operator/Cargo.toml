@@ -18,10 +18,13 @@ arroyo-udf-python = { path = "../arroyo-udf/arroyo-udf-python" }
 
 anyhow = "1.0.71"
 arrow = { workspace = true, features = ["ffi"] }
+arrow-array = { workspace = true }
 async-trait = "0.1.68"
 bincode = "2.0.0-rc.3"
 datafusion = { workspace = true }
 futures = "0.3"
+linregress = "0.5.3"
+ndarray = "0.15.6"
 prost = {workspace = true}
 rand = { workspace = true }
 tokio = { version = "1", features = ["full", "tracing"] }

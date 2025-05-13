@@ -15,6 +15,8 @@ use crate::arrow::window_fn::WindowFunctionConstructor;
 use crate::arrow::{KeyExecutionConstructor, ValueExecutionConstructor};
 use crate::network_manager::{NetworkManager, Quad, Senders};
 use arroyo_connectors::connectors;
+use arroyo_operator::cep::operator::CepOperatorConstructor;
+use arroyo_operator::timeseries::operator::TimeSeriesAnalysisOperatorConstructor;
 use arroyo_datastream::logical::{
     LogicalEdge, LogicalEdgeType, LogicalGraph, LogicalNode, OperatorChain, OperatorName,
 };
@@ -897,6 +899,8 @@ pub fn construct_operator(
         OperatorName::InstantJoin => Box::new(InstantJoinConstructor),
         OperatorName::LookupJoin => Box::new(LookupJoinConstructor),
         OperatorName::WindowFunction => Box::new(WindowFunctionConstructor),
+        OperatorName::ComplexEventProcessing => Box::new(CepOperatorConstructor),
+        OperatorName::TimeSeriesAnalysis => Box::new(TimeSeriesAnalysisOperatorConstructor),
         OperatorName::ConnectorSource | OperatorName::ConnectorSink => {
             let op: api::ConnectorOp = prost::Message::decode(config).unwrap();
             return connectors()
