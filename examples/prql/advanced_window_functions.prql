@@ -1,0 +1,167 @@
+# advanced_window_functions.prql
+# 这个示例展示了如何使用 PRQL 进行高级窗口聚合操作
+
+# 创建一个临时表，包含传感器数据
+let sensor_data = (
+  from s=impulse
+  
+  # 派生新列
+  derive {
+    # 生成传感器 ID（0-9）
+    sensor_id = counter % 10,
+    
+    # 生成随机温度（15-40度）
+    temperature = 15 + s.timestamp % 100 / 4,
+    
+    # 生成随机湿度（30-90%）
+    humidity = 30 + s.timestamp % 100 / 1.5,
+    
+    # 生成随机压力（980-1030 hPa）
+    pressure = 980 + s.timestamp % 100 / 2,
+    
+    # 使用事件时间
+    event_time = s.timestamp
+  }
+  
+  # 过滤数据
+  filter counter < 1000
+  
+  # 设置水印
+  set_watermark event_time 5s
+)
+
+# 使用滚动窗口和方差函数分析温度波动
+from sensor_data
+window tumbling 1h (
+  # 按传感器 ID 分组
+  group sensor_id (
+    # 计算聚合值
+    aggregate {
+      # 读数数量
+      reading_count = count,
+      
+      # 平均温度
+      avg_temperature = average temperature,
+      
+      # 总体方差
+      temperature_variance_pop = var_pop temperature,
+      
+      # 样本方差
+      temperature_variance_samp = var_samp temperature,
+      
+      # 总体标准差
+      temperature_stddev_pop = stddev_pop temperature,
+      
+      # 样本标准差
+      temperature_stddev_samp = stddev_samp temperature
+    }
+  )
+)
+
+# 使用滑动窗口和百分位数函数分析温度分布
+from sensor_data
+window sliding (
+  size = 1h,
+  slide = 10m,
+  time_field = event_time
+) (
+  # 按传感器 ID 分组
+  group sensor_id (
+    # 计算聚合值
+    aggregate {
+      # 读数数量
+      reading_count = count,
+      
+      # 中位数（50th 百分位数）
+      temperature_median = median temperature,
+      
+      # 25th 百分位数
+      temperature_p25 = percentile_25 temperature,
+      
+      # 75th 百分位数
+      temperature_p75 = percentile_75 temperature,
+      
+      # 90th 百分位数
+      temperature_p90 = percentile_90 temperature,
+      
+      # 95th 百分位数
+      temperature_p95 = percentile_95 temperature
+    }
+  )
+  
+  # 派生新列
+  derive {
+    # 四分位距（IQR）
+    temperature_iqr = temperature_p75 - temperature_p25
+  }
+)
+
+# 使用会话窗口和相关性函数分析温度与湿度的关系
+from sensor_data
+window session (
+  gap = 15m,
+  time_field = event_time
+) (
+  # 按传感器 ID 分组
+  group sensor_id (
+    # 计算聚合值
+    aggregate {
+      # 读数数量
+      reading_count = count,
+      
+      # 温度和湿度的协方差（总体）
+      temp_humidity_covar_pop = covar_pop temperature humidity,
+      
+      # 温度和湿度的协方差（样本）
+      temp_humidity_covar_samp = covar_samp temperature humidity,
+      
+      # 温度和湿度的相关系数
+      temp_humidity_correlation = corr temperature humidity,
+      
+      # 温度和压力的相关系数
+      temp_pressure_correlation = corr temperature pressure,
+      
+      # 湿度和压力的相关系数
+      humidity_pressure_correlation = corr humidity pressure
+    }
+  )
+)
+
+# 使用全局窗口和高级聚合函数进行异常检测
+from sensor_data
+group sensor_id (
+  sort event_time
+  window rows_between 100 preceding current (
+    derive {
+      # 平均温度
+      avg_temperature = average temperature,
+      
+      # 温度标准差
+      stddev_temperature = stddev_samp temperature,
+      
+      # 使用 Z-Score 进行异常检测
+      # Z-Score = (x - mean) / stddev
+      temperature_zscore = (temperature - avg_temperature) / stddev_temperature,
+      
+      # 25th 百分位数
+      temperature_p25 = percentile_25 temperature,
+      
+      # 75th 百分位数
+      temperature_p75 = percentile_75 temperature,
+      
+      # 四分位距（IQR）
+      temperature_iqr = temperature_p75 - temperature_p25,
+      
+      # 下界 = Q1 - 1.5 * IQR
+      temperature_lower_bound = temperature_p25 - 1.5 * temperature_iqr,
+      
+      # 上界 = Q3 + 1.5 * IQR
+      temperature_upper_bound = temperature_p75 + 1.5 * temperature_iqr,
+      
+      # 判断是否为异常值
+      temperature_outlier_status = if temperature < temperature_lower_bound then "Low Outlier"
+                                  else if temperature > temperature_upper_bound then "High Outlier"
+                                  else "Normal"
+    }
+  )
+)

@@ -52,6 +52,7 @@ macro_rules! make_udf_function {
 make_udf_function!(MultiHashFunction, MULTI_HASH, multi_hash);
 
 pub fn register_all(registry: &mut dyn FunctionRegistry) {
+    // 注册 JSON 相关函数
     registry
         .register_udf(Arc::new(create_udf(
             "get_first_json_object",
@@ -92,7 +93,106 @@ pub fn register_all(registry: &mut dyn FunctionRegistry) {
         )))
         .unwrap();
 
+    // 注册哈希函数
     registry.register_udf(multi_hash()).unwrap();
+
+    // 注册高级窗口聚合函数
+
+    // 方差函数
+    registry
+        .register_udf(Arc::new(create_udf(
+            "var_pop",
+            vec![DataType::Float64],
+            DataType::Float64,
+            Volatility::Immutable,
+            Arc::new(var_pop),
+        )))
+        .unwrap();
+
+    registry
+        .register_udf(Arc::new(create_udf(
+            "var_samp",
+            vec![DataType::Float64],
+            DataType::Float64,
+            Volatility::Immutable,
+            Arc::new(var_samp),
+        )))
+        .unwrap();
+
+    // 标准差函数
+    registry
+        .register_udf(Arc::new(create_udf(
+            "stddev_pop",
+            vec![DataType::Float64],
+            DataType::Float64,
+            Volatility::Immutable,
+            Arc::new(stddev_pop),
+        )))
+        .unwrap();
+
+    registry
+        .register_udf(Arc::new(create_udf(
+            "stddev_samp",
+            vec![DataType::Float64],
+            DataType::Float64,
+            Volatility::Immutable,
+            Arc::new(stddev_samp),
+        )))
+        .unwrap();
+
+    // 百分位数函数
+    registry
+        .register_udf(Arc::new(create_udf(
+            "percentile_cont",
+            vec![DataType::Float64, DataType::Float64],
+            DataType::Float64,
+            Volatility::Immutable,
+            Arc::new(percentile_cont),
+        )))
+        .unwrap();
+
+    // 中位数函数
+    registry
+        .register_udf(Arc::new(create_udf(
+            "median",
+            vec![DataType::Float64],
+            DataType::Float64,
+            Volatility::Immutable,
+            Arc::new(median),
+        )))
+        .unwrap();
+
+    // 协方差函数
+    registry
+        .register_udf(Arc::new(create_udf(
+            "covar_pop",
+            vec![DataType::Float64, DataType::Float64],
+            DataType::Float64,
+            Volatility::Immutable,
+            Arc::new(covar_pop),
+        )))
+        .unwrap();
+
+    registry
+        .register_udf(Arc::new(create_udf(
+            "covar_samp",
+            vec![DataType::Float64, DataType::Float64],
+            DataType::Float64,
+            Volatility::Immutable,
+            Arc::new(covar_samp),
+        )))
+        .unwrap();
+
+    // 相关系数函数
+    registry
+        .register_udf(Arc::new(create_udf(
+            "corr",
+            vec![DataType::Float64, DataType::Float64],
+            DataType::Float64,
+            Volatility::Immutable,
+            Arc::new(correlation),
+        )))
+        .unwrap();
 }
 
 fn parse_path(name: &str, path: &ScalarValue) -> Result<Arc<JsonPath>> {
@@ -579,5 +679,368 @@ mod test {
         } else {
             panic!("Expected scalar");
         }
+    }
+}
+
+// 高级窗口聚合函数实现
+
+/// 总体方差函数
+pub fn var_pop(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    assert_eq!(args.len(), 1);
+
+    match &args[0] {
+        ColumnarValue::Array(array) => {
+            let float_array = array.as_any().downcast_ref::<arrow_array::Float64Array>()
+                .ok_or_else(|| DataFusionError::Execution("var_pop expects Float64 input".to_string()))?;
+
+            let mut sum = 0.0;
+            let mut sum_squared = 0.0;
+            let mut count = 0;
+
+            for i in 0..float_array.len() {
+                if !float_array.is_null(i) {
+                    let value = float_array.value(i);
+                    sum += value;
+                    sum_squared += value * value;
+                    count += 1;
+                }
+            }
+
+            let variance = if count > 0 {
+                let mean = sum / count as f64;
+                sum_squared / count as f64 - mean * mean
+            } else {
+                0.0
+            };
+
+            Ok(ColumnarValue::Array(Arc::new(arrow_array::Float64Array::from(vec![variance]))))
+        }
+        ColumnarValue::Scalar(ScalarValue::Float64(Some(value))) => {
+            // 单个值的方差为 0
+            Ok(ColumnarValue::Scalar(ScalarValue::Float64(Some(0.0))))
+        }
+        _ => Err(DataFusionError::Execution("var_pop expects Float64 input".to_string())),
+    }
+}
+
+/// 样本方差函数
+pub fn var_samp(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    assert_eq!(args.len(), 1);
+
+    match &args[0] {
+        ColumnarValue::Array(array) => {
+            let float_array = array.as_any().downcast_ref::<arrow_array::Float64Array>()
+                .ok_or_else(|| DataFusionError::Execution("var_samp expects Float64 input".to_string()))?;
+
+            let mut sum = 0.0;
+            let mut sum_squared = 0.0;
+            let mut count = 0;
+
+            for i in 0..float_array.len() {
+                if !float_array.is_null(i) {
+                    let value = float_array.value(i);
+                    sum += value;
+                    sum_squared += value * value;
+                    count += 1;
+                }
+            }
+
+            let variance = if count > 1 {
+                let mean = sum / count as f64;
+                (sum_squared - count as f64 * mean * mean) / (count - 1) as f64
+            } else {
+                0.0
+            };
+
+            Ok(ColumnarValue::Array(Arc::new(arrow_array::Float64Array::from(vec![variance]))))
+        }
+        ColumnarValue::Scalar(ScalarValue::Float64(Some(value))) => {
+            // 单个值的样本方差为 null
+            Ok(ColumnarValue::Scalar(ScalarValue::Float64(None)))
+        }
+        _ => Err(DataFusionError::Execution("var_samp expects Float64 input".to_string())),
+    }
+}
+
+/// 总体标准差函数
+pub fn stddev_pop(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    let variance_result = var_pop(args)?;
+
+    match variance_result {
+        ColumnarValue::Array(array) => {
+            let float_array = array.as_any().downcast_ref::<arrow_array::Float64Array>()
+                .ok_or_else(|| DataFusionError::Execution("stddev_pop expects Float64 input".to_string()))?;
+
+            let mut result = arrow_array::Float64Array::builder(float_array.len());
+
+            for i in 0..float_array.len() {
+                if float_array.is_null(i) {
+                    result.append_null()?;
+                } else {
+                    let variance = float_array.value(i);
+                    result.append_value(variance.sqrt())?;
+                }
+            }
+
+            Ok(ColumnarValue::Array(Arc::new(result.finish())))
+        }
+        ColumnarValue::Scalar(ScalarValue::Float64(Some(variance))) => {
+            Ok(ColumnarValue::Scalar(ScalarValue::Float64(Some(variance.sqrt()))))
+        }
+        ColumnarValue::Scalar(ScalarValue::Float64(None)) => {
+            Ok(ColumnarValue::Scalar(ScalarValue::Float64(None)))
+        }
+        _ => Err(DataFusionError::Execution("stddev_pop expects Float64 input".to_string())),
+    }
+}
+
+/// 样本标准差函数
+pub fn stddev_samp(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    let variance_result = var_samp(args)?;
+
+    match variance_result {
+        ColumnarValue::Array(array) => {
+            let float_array = array.as_any().downcast_ref::<arrow_array::Float64Array>()
+                .ok_or_else(|| DataFusionError::Execution("stddev_samp expects Float64 input".to_string()))?;
+
+            let mut result = arrow_array::Float64Array::builder(float_array.len());
+
+            for i in 0..float_array.len() {
+                if float_array.is_null(i) {
+                    result.append_null()?;
+                } else {
+                    let variance = float_array.value(i);
+                    result.append_value(variance.sqrt())?;
+                }
+            }
+
+            Ok(ColumnarValue::Array(Arc::new(result.finish())))
+        }
+        ColumnarValue::Scalar(ScalarValue::Float64(Some(variance))) => {
+            Ok(ColumnarValue::Scalar(ScalarValue::Float64(Some(variance.sqrt()))))
+        }
+        ColumnarValue::Scalar(ScalarValue::Float64(None)) => {
+            Ok(ColumnarValue::Scalar(ScalarValue::Float64(None)))
+        }
+        _ => Err(DataFusionError::Execution("stddev_samp expects Float64 input".to_string())),
+    }
+}
+
+/// 百分位数函数
+pub fn percentile_cont(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    assert_eq!(args.len(), 2);
+
+    let (values, percentile) = match (&args[0], &args[1]) {
+        (ColumnarValue::Array(array), ColumnarValue::Scalar(ScalarValue::Float64(Some(p)))) => {
+            let float_array = array.as_any().downcast_ref::<arrow_array::Float64Array>()
+                .ok_or_else(|| DataFusionError::Execution("percentile_cont expects Float64 input".to_string()))?;
+
+            // 收集非空值
+            let mut values: Vec<f64> = Vec::with_capacity(float_array.len());
+            for i in 0..float_array.len() {
+                if !float_array.is_null(i) {
+                    values.push(float_array.value(i));
+                }
+            }
+
+            (values, *p)
+        }
+        (ColumnarValue::Scalar(ScalarValue::Float64(Some(value))), ColumnarValue::Scalar(ScalarValue::Float64(Some(p)))) => {
+            (vec![*value], *p)
+        }
+        _ => return Err(DataFusionError::Execution("percentile_cont expects Float64 input and Float64 percentile".to_string())),
+    };
+
+    // 验证百分位数在 [0, 1] 范围内
+    if percentile < 0.0 || percentile > 1.0 {
+        return Err(DataFusionError::Execution(format!("percentile must be between 0 and 1, got {}", percentile)));
+    }
+
+    // 计算百分位数
+    let result = if values.is_empty() {
+        None
+    } else {
+        // 排序值
+        let mut sorted_values = values.clone();
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let n = sorted_values.len();
+        let rank = percentile * (n as f64 - 1.0);
+        let rank_floor = rank.floor() as usize;
+        let rank_ceil = rank.ceil() as usize;
+
+        if rank_floor == rank_ceil {
+            // 整数索引
+            Some(sorted_values[rank_floor])
+        } else {
+            // 插值
+            let floor_val = sorted_values[rank_floor];
+            let ceil_val = sorted_values[rank_ceil];
+            let fraction = rank - rank_floor as f64;
+
+            Some(floor_val + fraction * (ceil_val - floor_val))
+        }
+    };
+
+    Ok(ColumnarValue::Scalar(ScalarValue::Float64(result)))
+}
+
+/// 中位数函数
+pub fn median(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    // 中位数是 50th 百分位数
+    let mut median_args = args.to_vec();
+    median_args.push(ColumnarValue::Scalar(ScalarValue::Float64(Some(0.5))));
+
+    percentile_cont(&median_args)
+}
+
+/// 总体协方差函数
+pub fn covar_pop(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    assert_eq!(args.len(), 2);
+
+    match (&args[0], &args[1]) {
+        (ColumnarValue::Array(array_x), ColumnarValue::Array(array_y)) => {
+            let float_array_x = array_x.as_any().downcast_ref::<arrow_array::Float64Array>()
+                .ok_or_else(|| DataFusionError::Execution("covar_pop expects Float64 input".to_string()))?;
+
+            let float_array_y = array_y.as_any().downcast_ref::<arrow_array::Float64Array>()
+                .ok_or_else(|| DataFusionError::Execution("covar_pop expects Float64 input".to_string()))?;
+
+            if float_array_x.len() != float_array_y.len() {
+                return Err(DataFusionError::Execution("covar_pop expects arrays of same length".to_string()));
+            }
+
+            let mut sum_x = 0.0;
+            let mut sum_y = 0.0;
+            let mut sum_xy = 0.0;
+            let mut count = 0;
+
+            for i in 0..float_array_x.len() {
+                if !float_array_x.is_null(i) && !float_array_y.is_null(i) {
+                    let x = float_array_x.value(i);
+                    let y = float_array_y.value(i);
+                    sum_x += x;
+                    sum_y += y;
+                    sum_xy += x * y;
+                    count += 1;
+                }
+            }
+
+            let covariance = if count > 0 {
+                let mean_x = sum_x / count as f64;
+                let mean_y = sum_y / count as f64;
+                sum_xy / count as f64 - mean_x * mean_y
+            } else {
+                0.0
+            };
+
+            Ok(ColumnarValue::Scalar(ScalarValue::Float64(Some(covariance))))
+        }
+        _ => Err(DataFusionError::Execution("covar_pop expects Float64 arrays".to_string())),
+    }
+}
+
+/// 样本协方差函数
+pub fn covar_samp(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    assert_eq!(args.len(), 2);
+
+    match (&args[0], &args[1]) {
+        (ColumnarValue::Array(array_x), ColumnarValue::Array(array_y)) => {
+            let float_array_x = array_x.as_any().downcast_ref::<arrow_array::Float64Array>()
+                .ok_or_else(|| DataFusionError::Execution("covar_samp expects Float64 input".to_string()))?;
+
+            let float_array_y = array_y.as_any().downcast_ref::<arrow_array::Float64Array>()
+                .ok_or_else(|| DataFusionError::Execution("covar_samp expects Float64 input".to_string()))?;
+
+            if float_array_x.len() != float_array_y.len() {
+                return Err(DataFusionError::Execution("covar_samp expects arrays of same length".to_string()));
+            }
+
+            let mut sum_x = 0.0;
+            let mut sum_y = 0.0;
+            let mut sum_xy = 0.0;
+            let mut count = 0;
+
+            for i in 0..float_array_x.len() {
+                if !float_array_x.is_null(i) && !float_array_y.is_null(i) {
+                    let x = float_array_x.value(i);
+                    let y = float_array_y.value(i);
+                    sum_x += x;
+                    sum_y += y;
+                    sum_xy += x * y;
+                    count += 1;
+                }
+            }
+
+            let covariance = if count > 1 {
+                let mean_x = sum_x / count as f64;
+                let mean_y = sum_y / count as f64;
+                (sum_xy - count as f64 * mean_x * mean_y) / (count - 1) as f64
+            } else {
+                0.0
+            };
+
+            Ok(ColumnarValue::Scalar(ScalarValue::Float64(Some(covariance))))
+        }
+        _ => Err(DataFusionError::Execution("covar_samp expects Float64 arrays".to_string())),
+    }
+}
+
+/// 相关系数函数
+pub fn correlation(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    assert_eq!(args.len(), 2);
+
+    match (&args[0], &args[1]) {
+        (ColumnarValue::Array(array_x), ColumnarValue::Array(array_y)) => {
+            let float_array_x = array_x.as_any().downcast_ref::<arrow_array::Float64Array>()
+                .ok_or_else(|| DataFusionError::Execution("corr expects Float64 input".to_string()))?;
+
+            let float_array_y = array_y.as_any().downcast_ref::<arrow_array::Float64Array>()
+                .ok_or_else(|| DataFusionError::Execution("corr expects Float64 input".to_string()))?;
+
+            if float_array_x.len() != float_array_y.len() {
+                return Err(DataFusionError::Execution("corr expects arrays of same length".to_string()));
+            }
+
+            let mut sum_x = 0.0;
+            let mut sum_y = 0.0;
+            let mut sum_xy = 0.0;
+            let mut sum_x2 = 0.0;
+            let mut sum_y2 = 0.0;
+            let mut count = 0;
+
+            for i in 0..float_array_x.len() {
+                if !float_array_x.is_null(i) && !float_array_y.is_null(i) {
+                    let x = float_array_x.value(i);
+                    let y = float_array_y.value(i);
+                    sum_x += x;
+                    sum_y += y;
+                    sum_xy += x * y;
+                    sum_x2 += x * x;
+                    sum_y2 += y * y;
+                    count += 1;
+                }
+            }
+
+            let correlation = if count > 1 {
+                let mean_x = sum_x / count as f64;
+                let mean_y = sum_y / count as f64;
+
+                let cov = sum_xy / count as f64 - mean_x * mean_y;
+                let var_x = sum_x2 / count as f64 - mean_x * mean_x;
+                let var_y = sum_y2 / count as f64 - mean_y * mean_y;
+
+                if var_x.abs() < f64::EPSILON || var_y.abs() < f64::EPSILON {
+                    0.0 // 避免除以零
+                } else {
+                    cov / (var_x.sqrt() * var_y.sqrt())
+                }
+            } else {
+                0.0
+            };
+
+            Ok(ColumnarValue::Scalar(ScalarValue::Float64(Some(correlation))))
+        }
+        _ => Err(DataFusionError::Execution("corr expects Float64 arrays".to_string())),
     }
 }

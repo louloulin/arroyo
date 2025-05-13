@@ -5,6 +5,7 @@ pub(crate) mod extension;
 pub mod external;
 mod functions;
 pub mod logical;
+pub mod optimizers;
 pub mod physical;
 mod plan;
 mod rewriters;
@@ -644,17 +645,21 @@ pub fn rewrite_plan(
     plan: LogicalPlan,
     schema_provider: &ArroyoSchemaProvider,
 ) -> Result<LogicalPlan> {
+    // 应用 Arroyo 特定的重写规则
     let rewritten_plan = plan
         .rewrite_with_subqueries(&mut ArroyoRewriter { schema_provider })?
         .data
         .rewrite_with_subqueries(&mut UnnestRewriter {})?;
 
-    // check for window functions
+    // 检查窗口函数
     rewritten_plan
         .data
         .visit_with_subqueries(&mut TimeWindowUdfChecker {})?;
 
-    Ok(rewritten_plan.data)
+    // 应用优化器
+    let optimized_plan = optimizers::optimize_plan(rewritten_plan.data, schema_provider)?;
+
+    Ok(optimized_plan)
 }
 
 fn build_sink_inputs(extensions: &[LogicalPlan]) -> HashMap<NamedNode, Vec<LogicalPlan>> {

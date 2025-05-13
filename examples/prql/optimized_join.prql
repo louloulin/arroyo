@@ -1,0 +1,193 @@
+# optimized_join.prql
+# 本示例展示了 Arroyo 中优化的流式 JOIN 操作
+
+# 定义订单流
+let orders = (
+  from s=impulse
+  
+  # 派生订单数据
+  derive {
+    order_id = s"ORD-{counter}",
+    customer_id = s"CUST-{counter % 100}",
+    product_id = s"PROD-{counter % 50}",
+    quantity = (counter % 10) + 1,
+    price = 10.0 + (counter % 100),
+    order_time = s.timestamp
+  }
+  
+  # 过滤数据
+  filter counter < 1000
+  
+  # 设置水印
+  set_watermark order_time 30s
+)
+
+# 定义客户维度表
+let customers = (
+  from s=impulse
+  
+  # 派生客户数据
+  derive {
+    customer_id = s"CUST-{counter}",
+    customer_name = s"Customer {counter}",
+    customer_email = s"customer{counter}@example.com",
+    customer_address = s"123 Main St, City {counter}",
+    customer_segment = if counter % 10 == 0 then "VIP" else "Regular",
+    last_updated = s.timestamp
+  }
+  
+  # 过滤数据
+  filter counter < 100
+  
+  # 设置为维度表
+  set_dimension_table customer_id
+)
+
+# 定义产品维度表
+let products = (
+  from s=impulse
+  
+  # 派生产品数据
+  derive {
+    product_id = s"PROD-{counter}",
+    product_name = s"Product {counter}",
+    product_category = if counter % 5 == 0 then "Electronics"
+                      else if counter % 5 == 1 then "Clothing"
+                      else if counter % 5 == 2 then "Home"
+                      else if counter % 5 == 3 then "Sports"
+                      else "Books",
+    product_price = 10.0 + (counter % 100),
+    product_inventory = 100 - (counter % 50),
+    last_updated = s.timestamp
+  }
+  
+  # 过滤数据
+  filter counter < 50
+  
+  # 设置为维度表
+  set_dimension_table product_id
+)
+
+# 定义支付流
+let payments = (
+  from s=impulse
+  
+  # 派生支付数据
+  derive {
+    payment_id = s"PAY-{counter}",
+    order_id = s"ORD-{counter}",
+    payment_method = if counter % 3 == 0 then "Credit Card"
+                    else if counter % 3 == 1 then "PayPal"
+                    else "Bank Transfer",
+    payment_amount = 10.0 + (counter % 100) * ((counter % 10) + 1),
+    payment_status = if counter % 10 == 0 then "Failed" else "Success",
+    payment_time = s.timestamp + 5m
+  }
+  
+  # 过滤数据
+  filter counter < 1000
+  
+  # 设置水印
+  set_watermark payment_time 30s
+)
+
+# 示例 1: 优化的查找 JOIN（流-表 JOIN）
+# 这个查询将订单流与客户和产品维度表连接，丰富订单数据
+# 优化器会自动将这个 JOIN 转换为查找 JOIN，提高性能
+from orders
+join c=customers [customer_id]
+join p=products [product_id]
+select {
+  order_id,
+  order_time,
+  c.customer_name,
+  c.customer_segment,
+  p.product_name,
+  p.product_category,
+  quantity,
+  price,
+  total_amount = quantity * price
+}
+
+# 示例 2: 优化的窗口 JOIN（流-流 JOIN）
+# 这个查询将订单流与支付流在时间窗口内连接，关联订单和支付事件
+# 优化器会自动将这个 JOIN 转换为窗口 JOIN，提高性能
+from orders
+join p=payments [order_id] (
+  filter p.payment_time >= order_time and p.payment_time <= order_time + 1h
+)
+select {
+  order_id,
+  customer_id,
+  product_id,
+  quantity,
+  price,
+  order_time,
+  p.payment_id,
+  p.payment_method,
+  p.payment_amount,
+  p.payment_status,
+  p.payment_time,
+  payment_delay = p.payment_time - order_time
+}
+
+# 示例 3: 优化的分区 JOIN（大表-大表 JOIN）
+# 这个查询将两个大表连接，优化器会自动选择分区 JOIN 策略
+from o1=orders
+join o2=orders [customer_id] (
+  filter o1.order_id != o2.order_id and 
+         o2.order_time >= o1.order_time and 
+         o2.order_time <= o1.order_time + 7d
+)
+select {
+  order_id_1 = o1.order_id,
+  order_id_2 = o2.order_id,
+  customer_id = o1.customer_id,
+  product_id = o1.product_id,
+  related_product_id = o2.product_id,
+  order_time = o1.order_time,
+  related_order_time = o2.order_time
+}
+
+# 示例 4: 优化的多路 JOIN
+# 这个查询将多个流和表连接，优化器会自动选择最优的 JOIN 策略组合
+from orders
+join c=customers [customer_id] (
+  filter c.customer_segment == "VIP"
+)
+join p=products [product_id] (
+  filter p.product_category == "Electronics"
+)
+join pay=payments [order_id] (
+  filter pay.payment_time >= order_time and 
+         pay.payment_time <= order_time + 1h
+)
+select {
+  order_id,
+  order_time,
+  c.customer_name,
+  p.product_name,
+  quantity,
+  price,
+  pay.payment_method,
+  pay.payment_status,
+  payment_delay = pay.payment_time - order_time
+}
+
+# 示例 5: 优化的聚合 JOIN
+# 这个查询在 JOIN 前进行聚合，减少参与 JOIN 的数据量
+from orders
+join c=customers [customer_id]
+join p=products [product_id]
+join pay=payments [order_id] (
+  filter pay.payment_time >= order_time and 
+         pay.payment_time <= order_time + 1h
+)
+group {c.customer_segment, p.product_category} (
+  aggregate {
+    order_count = count,
+    total_quantity = sum quantity,
+    total_amount = sum (quantity * price),
+    avg_payment_delay = average (pay.payment_time - order_time)
+  }
+)

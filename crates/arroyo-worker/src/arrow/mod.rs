@@ -53,6 +53,7 @@ pub mod window_operator;
 pub mod window_trigger;
 pub mod window_assigners;
 pub mod window_functions;
+pub mod advanced_window_functions;
 
 /// 计算批次的哈希值
 pub fn compute_batch_hash(batch: &RecordBatch) -> u64 {
