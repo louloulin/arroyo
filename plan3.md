@@ -441,6 +441,7 @@ pub struct Stream<T> {
    - [x] 实现会话窗口、计数窗口和自定义窗口 - 已实现 `TumblingWindow`、`SlidingWindow`、`SessionWindow` 和 `GlobalWindow` 类型
    - [x] 支持窗口触发器和驱逐器 - 已实现 `EventTimeTrigger`、`ProcessingTimeTrigger`、`CountTrigger` 和 `CompositeTrigger` 类
    - [x] 优化窗口状态管理和性能 - 已实现高效的窗口状态管理机制
+   - [x] 优化滚动窗口实现 - 已实现 `OptimizedTumblingWindowFunc` 类，支持高性能滚动窗口操作
 
 3. **✅ 状态管理**：增强状态后端，支持更大规模状态
    - [x] 扩展现有的 `StateBackend` 接口和实现
@@ -834,6 +835,7 @@ Arroyo 当前架构主要包括以下组件：
   - [x] 开发段索引优化，加速查找 - 已实现偏移量索引和时间戳索引
   - [x] 实现自适应段清理策略，平衡性能和空间 - 已实现基于配置的清理策略
   - [x] 开发段恢复和验证机制，确保数据完整性 - 已实现错误处理和恢复机制
+  - [x] 优化批次哈希计算 - 已实现高效的 `compute_batch_hash` 函数，支持缓存优化
 
 - [x] 实现索引和缓存
   - [x] 开发多级偏移量索引，支持快速查找 - 已实现 `OffsetIndex` 和索引缓存
@@ -848,6 +850,7 @@ Arroyo 当前架构主要包括以下组件：
   - [x] 实现异步 I/O 和并行处理 - 已实现异步读写操作
   - [x] 开发 I/O 调度和优先级机制 - 已实现基于锁的写入调度
   - [x] 实现直接 I/O，绕过操作系统缓存 - 已实现自定义缓冲区管理
+  - [x] 优化缓存清理机制 - 已实现高效的缓存清理算法，避免借用冲突
 
 - [x] 实现存储格式优化
   - [x] 开发自适应压缩策略，平衡 CPU 和存储 - 已实现高效的存储格式
@@ -871,6 +874,7 @@ Arroyo 当前架构主要包括以下组件：
 **TodoList**：
 - [ ] 增强操作符实现
   - [x] 优化现有操作符性能（Map、Filter、Join 等）
+  - [x] 优化 Map 操作符 - 已实现 `OptimizedMapOperator` 类，支持高效的批处理和缓存
   - [ ] 扩展 `arroyo-operator` 模块，支持更多操作符
   - [ ] 添加复杂事件处理 (CEP) 操作符
   - [ ] 实现模式匹配和序列检测操作符

@@ -278,6 +278,15 @@ impl StatelessPhysicalExecutor {
         })
     }
 
+    /// 创建一个用于测试的 StatelessPhysicalExecutor
+    pub fn new_for_test(plan: Arc<dyn ExecutionPlan>) -> Self {
+        Self {
+            batch: Arc::new(RwLock::default()),
+            plan,
+            task_context: SessionContext::new().task_ctx(),
+        }
+    }
+
     pub async fn process_batch(&mut self, batch: RecordBatch) -> SendableRecordBatchStream {
         {
             let mut writer = self.batch.write().unwrap();
