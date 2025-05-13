@@ -4,6 +4,8 @@ use crate::arrow::incremental_aggregator::IncrementalAggregatingConstructor;
 use crate::arrow::instant_join::InstantJoinConstructor;
 use crate::arrow::join_with_expiration::JoinWithExpirationConstructor;
 use crate::arrow::lookup_join::LookupJoinConstructor;
+use crate::arrow::optimized_filter::OptimizedFilterConstructor;
+use crate::arrow::optimized_map::OptimizedMapConstructor;
 use crate::arrow::session_aggregating_window::SessionAggregatingWindowConstructor;
 use crate::arrow::sliding_aggregating_window::SlidingAggregatingWindowConstructor;
 use crate::arrow::tumbling_aggregating_window::TumblingAggregateWindowConstructor;
@@ -859,8 +861,22 @@ pub fn construct_operator(
     registry: Arc<Registry>,
 ) -> ConstructedOperator {
     let ctor: Box<dyn ErasedConstructor> = match operator {
-        OperatorName::ArrowValue => Box::new(ValueExecutionConstructor),
-        OperatorName::ArrowKey => Box::new(KeyExecutionConstructor),
+        OperatorName::ArrowValue => {
+            // 使用优化的 Map 操作符替代标准的 ValueExecutionConstructor
+            if config.len() > 0 && config[0] == b'O' {
+                Box::new(OptimizedMapConstructor)
+            } else {
+                Box::new(ValueExecutionConstructor)
+            }
+        },
+        OperatorName::ArrowKey => {
+            // 使用优化的 Filter 操作符替代标准的 KeyExecutionConstructor
+            if config.len() > 0 && config[0] == b'O' {
+                Box::new(OptimizedFilterConstructor)
+            } else {
+                Box::new(KeyExecutionConstructor)
+            }
+        },
         OperatorName::AsyncUdf => Box::new(AsyncUdfConstructor),
         OperatorName::TumblingWindowAggregate => Box::new(TumblingAggregateWindowConstructor),
         OperatorName::SlidingWindowAggregate => Box::new(SlidingAggregatingWindowConstructor),

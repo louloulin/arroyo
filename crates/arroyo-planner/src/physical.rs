@@ -190,6 +190,10 @@ pub fn new_registry() -> Registry {
     let mut registry = Registry::default();
     registry.add_udf(window());
     register_functions(&mut registry);
+
+    // 注意：优化版本的操作符应该在 arroyo-worker 中注册
+    // 由于循环依赖问题，我们不能在这里直接注册
+
     registry
 }
 
