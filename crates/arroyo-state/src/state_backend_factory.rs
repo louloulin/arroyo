@@ -1,4 +1,5 @@
 use crate::parquet::ParquetBackend;
+use crate::optimized_parquet::OptimizedParquetBackend;
 use crate::tiered::{TieredStateBackend, TieredStorageConfig};
 use crate::BackingStore;
 use anyhow::Result;
@@ -20,6 +21,15 @@ impl StateBackendFactory {
             StateBackendType::Parquet => {
                 // 使用默认的Parquet后端
                 Ok(Box::new(ParquetBackend))
+            }
+            StateBackendType::OptimizedParquet => {
+                // 使用优化的Parquet后端
+                // 获取可用的CPU核心数作为并行度
+                let parallelism = std::thread::available_parallelism()
+                    .map(|p| p.get())
+                    .unwrap_or(4);
+
+                Ok(Box::new(OptimizedParquetBackend::new(Some(parallelism))))
             }
             StateBackendType::Tiered => {
                 // 创建分层状态后端

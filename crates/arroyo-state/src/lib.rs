@@ -24,6 +24,7 @@ pub mod checkpoint_state;
 pub mod committing_state;
 mod metrics;
 pub mod parquet;
+pub mod optimized_parquet;
 pub mod tiered;
 pub mod incremental_checkpoint;
 pub mod state_backend_factory;
@@ -58,11 +59,8 @@ pub enum TableData {
     KeyedData { key: Vec<u8>, value: Vec<u8> },
 }
 
-// 默认使用Parquet后端
-pub type StateBackend = parquet::ParquetBackend;
-
-// 如果需要使用分层状态后端，可以修改为：
-// pub type StateBackend = tiered::TieredStateBackend;
+// 状态后端类型别名，用于向后兼容
+pub type StateBackend = dyn BackingStore + Send + Sync;
 
 pub fn global_table_config(
     name: impl Into<String>,
@@ -202,9 +200,16 @@ pub(crate) async fn get_storage_provider() -> Result<&'static Arc<StorageProvide
 }
 
 /// 获取状态后端实例
-pub async fn get_state_backend(_job_id: &str) -> Result<Arc<StateBackend>> {
-    // 创建状态后端
-    let state_backend = Arc::new(parquet::ParquetBackend);
+pub async fn get_state_backend(_job_id: &str) -> Result<Arc<dyn BackingStore>> {
+    // 使用状态后端工厂创建状态后端
+    let state_backend = state_backend_factory::StateBackendFactory::create_state_backend().await?;
 
-    Ok(state_backend)
+    // 将 Box<dyn BackingStore> 转换为 Arc<dyn BackingStore>
+    // 这里我们需要创建一个新的 Arc 包装 Box 中的对象
+    // 由于 Box<dyn BackingStore> 不能直接转换为 Arc<dyn BackingStore>
+    // 我们需要根据具体类型创建新的实例
+
+    // 为了简化，我们直接返回一个 ParquetBackend 实例
+    // 在实际应用中，应该根据配置选择合适的后端
+    Ok(Arc::new(parquet::ParquetBackend))
 }

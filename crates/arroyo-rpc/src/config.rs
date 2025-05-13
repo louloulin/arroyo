@@ -452,6 +452,8 @@ pub struct ChainingConfig {
 pub enum StateBackendType {
     /// Parquet状态后端（默认）
     Parquet,
+    /// 优化的Parquet状态后端
+    OptimizedParquet,
     /// 分层状态后端
     Tiered,
 }

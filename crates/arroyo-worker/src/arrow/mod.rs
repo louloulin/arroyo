@@ -39,11 +39,13 @@ pub mod join_with_expiration;
 pub mod lookup_join;
 pub mod optimized_filter;
 pub mod optimized_map;
+pub mod optimized_tumbling_window;
 pub mod session_aggregating_window;
 pub mod sliding_aggregating_window;
 pub(crate) mod sync;
 pub mod tumbling_aggregating_window;
 mod updating_cache;
+pub mod utils;
 pub mod watermark_generator;
 pub mod window_fn;
 
