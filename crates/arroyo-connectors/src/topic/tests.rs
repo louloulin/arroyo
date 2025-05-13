@@ -161,6 +161,10 @@ mod tests {
             batch_size: 10,
             prefetch_count: 20,
             prefetch_timeout: Duration::from_millis(100),
+            bootstrap_servers: "localhost:9092".to_string(),
+            group_id: None,
+            client_configs: HashMap::new(),
+            consumer: None,
         };
 
         // 验证批处理和预取配置
@@ -189,6 +193,10 @@ mod tests {
             batch_size: 5,
             prefetch_count: 10,
             prefetch_timeout: Duration::from_millis(100),
+            bootstrap_servers: "localhost:9092".to_string(),
+            group_id: None,
+            client_configs: HashMap::new(),
+            consumer: None,
         };
 
         // 创建预取缓冲区
@@ -254,5 +262,65 @@ mod tests {
 
         // 验证事务配置
         assert!(sink_func.transactional);
+    }
+
+    #[test]
+    fn test_topic_sink_bootstrap_servers() {
+        use arroyo_formats::ser::ArrowSerializer;
+
+        // 创建 TopicSinkFunc 实例
+        let sink_func = TopicSinkFunc::new(
+            "test-topic".to_string(),
+            ArrowSerializer::new(Format::Json(JsonFormat {
+                confluent_schema_registry: false,
+                schema_id: None,
+                include_schema: false,
+                debezium: false,
+                unstructured: false,
+                timestamp_format: arroyo_rpc::formats::TimestampFormat::RFC3339,
+            })),
+        )
+        .with_bootstrap_servers("kafka:9092".to_string())
+        .with_client_config("acks".to_string(), "all".to_string());
+
+        // 验证配置
+        assert_eq!(sink_func.bootstrap_servers, "kafka:9092");
+        assert_eq!(sink_func.client_configs.get("acks").unwrap(), "all");
+    }
+
+    #[test]
+    fn test_topic_source_bootstrap_servers() {
+        // 创建 TopicSourceFunc 实例
+        let source_func = TopicSourceFunc {
+            topic: "test-topic".to_string(),
+            offset_mode: crate::topic::source::SourceOffset::Earliest,
+            format: Format::Json(JsonFormat {
+                confluent_schema_registry: false,
+                schema_id: None,
+                include_schema: false,
+                debezium: false,
+                unstructured: false,
+                timestamp_format: arroyo_rpc::formats::TimestampFormat::RFC3339,
+            }),
+            framing: None,
+            bad_data: None,
+            metadata_fields: vec![],
+            batch_size: 10,
+            prefetch_count: 20,
+            prefetch_timeout: Duration::from_millis(100),
+            bootstrap_servers: "kafka:9092".to_string(),
+            group_id: Some("test-group".to_string()),
+            client_configs: {
+                let mut configs = HashMap::new();
+                configs.insert("auto.offset.reset".to_string(), "earliest".to_string());
+                configs
+            },
+            consumer: None,
+        };
+
+        // 验证配置
+        assert_eq!(source_func.bootstrap_servers, "kafka:9092");
+        assert_eq!(source_func.group_id, Some("test-group".to_string()));
+        assert_eq!(source_func.client_configs.get("auto.offset.reset").unwrap(), "earliest");
     }
 }

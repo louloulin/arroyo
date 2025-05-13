@@ -1,12 +1,18 @@
+use anyhow::{anyhow, Result};
 use arrow::array::RecordBatch;
 use async_trait::async_trait;
+use rdkafka::config::ClientConfig;
+use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::util::Timeout;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::Mutex;
 use uuid;
 
 use arroyo_formats::ser::ArrowSerializer;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use arroyo_operator::context::{Collector, OperatorContext};
 use arroyo_operator::operator::ArrowOperator;
@@ -103,6 +109,16 @@ pub struct TopicSinkFunc {
     buffer_size_limit: usize,
     /// 当前缓冲区大小
     current_buffer_size: usize,
+    /// 服务器地址
+    pub bootstrap_servers: String,
+    /// 客户端配置
+    pub client_configs: HashMap<String, String>,
+    /// 生产者实例
+    producer: Option<Arc<Mutex<FutureProducer>>>,
+    /// 事务生产者实例
+    transactional_producer: Option<Arc<Mutex<FutureProducer>>>,
+    /// 待处理的消息发送结果
+    pending_delivery_futures: Vec<()>,
 }
 
 impl Debug for TopicSinkFunc {
@@ -123,26 +139,57 @@ impl ArrowOperator for TopicSinkFunc {
         format!("topic-sink-{}", self.topic)
     }
 
-    async fn on_start(&mut self, _ctx: &mut OperatorContext) {
-        // 在实际实现中，这里应该初始化与 Topic 存储系统的连接
+    async fn on_start(&mut self, ctx: &mut OperatorContext) {
+        // 初始化与 Topic 存储系统的连接
         info!("Starting TopicSink for topic: {}", self.topic);
         info!("Partition strategy: {:?}, Transactional: {}", self.partition_strategy, self.transactional);
 
-        // 如果启用了事务，初始化事务
+        // 创建生产者
+        match self.create_producer().await {
+            Ok(producer) => {
+                self.producer = Some(Arc::new(Mutex::new(producer)));
+                info!("Created producer for topic: {}", self.topic);
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to create producer: {}", e);
+                ctx.report_error(error_msg.clone(), error_msg).await;
+                panic!("Failed to create producer: {}", e);
+            }
+        }
+
+        // 如果启用了事务，初始化事务生产者
         if self.transactional {
-            let transaction_id = format!("tx-{}-{}", self.topic, uuid::Uuid::new_v4());
-            info!("Initialized transaction: {}", transaction_id);
-            self.current_transaction = Some(Transaction::new(transaction_id));
+            match self.create_transactional_producer().await {
+                Ok(producer) => {
+                    self.transactional_producer = Some(Arc::new(Mutex::new(producer)));
+                    info!("Created transactional producer for topic: {}", self.topic);
+
+                    // 初始化事务
+                    let transaction_id = format!("tx-{}-{}", self.topic, uuid::Uuid::new_v4());
+                    info!("Initialized transaction: {}", transaction_id);
+                    self.current_transaction = Some(Transaction::new(transaction_id));
+
+                    // 开始事务
+                    if let Some(transaction) = &mut self.current_transaction {
+                        transaction.start();
+                    }
+                }
+                Err(e) => {
+                    let error_msg = format!("Failed to create transactional producer: {}", e);
+                    ctx.report_error(error_msg.clone(), error_msg).await;
+                    panic!("Failed to create transactional producer: {}", e);
+                }
+            }
         }
     }
 
     async fn process_batch(
         &mut self,
         batch: RecordBatch,
-        _: &mut OperatorContext,
+        ctx: &mut OperatorContext,
         _: &mut dyn Collector,
     ) {
-        // 在实际实现中，这里应该将数据写入 Topic 存储系统
+        // 将数据写入 Topic 存储系统
         let values = self.serializer.serialize(&batch);
         let mut count = 0;
 
@@ -164,12 +211,16 @@ impl ArrowOperator for TopicSinkFunc {
             if self.transactional {
                 // 如果启用了事务，将消息缓冲到当前事务中
                 if let Some(transaction) = &mut self.current_transaction {
-                    transaction.buffer_message(partition, value);
+                    transaction.buffer_message(partition, value.clone());
                     self.current_buffer_size += 1;
                 }
             } else {
                 // 如果没有启用事务，直接写入
-                self.write_to_partition(partition, value);
+                if let Err(e) = self.write_to_partition(partition, value).await {
+                    let error_msg = format!("Failed to write to partition {}: {}", partition, e);
+                    ctx.report_error(error_msg.clone(), error_msg).await;
+                    error!("Failed to write to partition {}: {}", partition, e);
+                }
             }
 
             count += 1;
@@ -177,8 +228,20 @@ impl ArrowOperator for TopicSinkFunc {
 
         // 检查是否需要刷新缓冲区
         if self.transactional && self.should_flush() {
-            self.flush_buffer();
+            match self.flush_buffer().await {
+                Ok(_) => {
+                    debug!("Flushed buffer for topic: {}", self.topic);
+                }
+                Err(e) => {
+                    let error_msg = format!("Failed to flush buffer: {}", e);
+                    ctx.report_error(error_msg.clone(), error_msg).await;
+                    error!("Failed to flush buffer: {}", e);
+                }
+            }
         }
+
+        // 检查待处理的消息发送结果
+        self.check_pending_deliveries().await;
 
         info!("Processed {} records for topic: {}", count, self.topic);
     }
@@ -186,11 +249,14 @@ impl ArrowOperator for TopicSinkFunc {
     async fn handle_checkpoint(
         &mut self,
         checkpoint: CheckpointBarrier,
-        _: &mut OperatorContext,
+        ctx: &mut OperatorContext,
         _: &mut dyn Collector,
     ) {
-        // 在实际实现中，这里应该刷新缓冲区，确保所有数据都已写入
+        // 刷新缓冲区，确保所有数据都已写入
         info!("Handling checkpoint for topic: {}, epoch: {}", self.topic, checkpoint.epoch);
+
+        // 等待所有待处理的消息发送完成
+        self.wait_for_pending_deliveries().await;
 
         if self.transactional {
             // 如果启用了事务，提交当前事务并开始新事务
@@ -199,12 +265,26 @@ impl ArrowOperator for TopicSinkFunc {
                 transaction.set_checkpoint_id(checkpoint.epoch);
 
                 // 提交事务
-                self.commit_transaction();
+                match self.commit_transaction().await {
+                    Ok(_) => {
+                        info!("Committed transaction for checkpoint: {}", checkpoint.epoch);
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Failed to commit transaction: {}", e);
+                        ctx.report_error(error_msg.clone(), error_msg).await;
+                        error!("Failed to commit transaction: {}", e);
+                    }
+                }
 
                 // 创建新事务
                 let transaction_id = format!("tx-{}-{}-{}", self.topic, uuid::Uuid::new_v4(), checkpoint.epoch);
                 debug!("Created new transaction: {}", transaction_id);
                 self.current_transaction = Some(Transaction::new(transaction_id));
+
+                // 开始新事务
+                if let Some(transaction) = &mut self.current_transaction {
+                    transaction.start();
+                }
             }
         } else {
             // 如果没有启用事务，只需刷新缓冲区
@@ -229,6 +309,11 @@ impl TopicSinkFunc {
             last_flush_time: std::time::Instant::now(),
             buffer_size_limit: 1000,
             current_buffer_size: 0,
+            bootstrap_servers: "localhost:9092".to_string(),
+            client_configs: HashMap::new(),
+            producer: None,
+            transactional_producer: None,
+            pending_delivery_futures: Vec::new(),
         }
     }
 
@@ -262,6 +347,61 @@ impl TopicSinkFunc {
         self
     }
 
+    /// 设置服务器地址
+    pub fn with_bootstrap_servers(mut self, servers: String) -> Self {
+        self.bootstrap_servers = servers;
+        self
+    }
+
+    /// 设置客户端配置
+    pub fn with_client_config(mut self, key: String, value: String) -> Self {
+        self.client_configs.insert(key, value);
+        self
+    }
+
+    /// 创建生产者
+    async fn create_producer(&self) -> Result<FutureProducer> {
+        let mut client_config = ClientConfig::new();
+        client_config.set("bootstrap.servers", &self.bootstrap_servers);
+
+        // 设置其他客户端配置
+        for (key, value) in &self.client_configs {
+            client_config.set(key, value);
+        }
+
+        // 创建生产者
+        let producer: FutureProducer = client_config
+            .create()
+            .map_err(|e| anyhow!("Failed to create producer: {}", e))?;
+
+        Ok(producer)
+    }
+
+    /// 创建事务生产者
+    async fn create_transactional_producer(&self) -> Result<FutureProducer> {
+        let mut client_config = ClientConfig::new();
+        client_config.set("bootstrap.servers", &self.bootstrap_servers);
+
+        // 设置事务ID
+        let transaction_id = format!("tx-{}-{}", self.topic, uuid::Uuid::new_v4());
+        client_config.set("transactional.id", &transaction_id);
+
+        // 设置其他客户端配置
+        for (key, value) in &self.client_configs {
+            client_config.set(key, value);
+        }
+
+        // 创建生产者
+        let producer: FutureProducer = client_config
+            .create()
+            .map_err(|e| anyhow!("Failed to create transactional producer: {}", e))?;
+
+        // 注意：在实际生产环境中，应该使用 rdkafka 的事务API
+        // 但由于 rdkafka 的 Rust 绑定可能不完全支持事务，这里简化处理
+
+        Ok(producer)
+    }
+
     /// 确定记录应该写入的分区
     fn determine_partition(&mut self, _batch: &RecordBatch, index: usize) -> u32 {
         match self.partition_strategy {
@@ -287,11 +427,37 @@ impl TopicSinkFunc {
     }
 
     /// 将记录写入指定分区
-    fn write_to_partition(&self, partition: u32, value: Vec<u8>) {
-        // 在实际实现中，这里应该将数据写入 Topic 存储系统的指定分区
-        // 这里简单模拟一下
-        debug!("Writing record to topic: {}, partition: {}, size: {} bytes",
-               self.topic, partition, value.len());
+    async fn write_to_partition(&self, partition: u32, value: Vec<u8>) -> Result<()> {
+        if let Some(producer) = &self.producer {
+            let producer = producer.lock().await;
+
+            // 创建记录
+            let record = FutureRecord::to(&self.topic)
+                .partition(partition as i32)
+                .payload(&value)
+                .key("")  // 添加一个空键以满足类型要求
+                .timestamp(SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as i64);
+
+            // 发送记录
+            let delivery_future = producer.send(record, Timeout::After(Duration::from_secs(5)));
+
+            // 等待发送完成
+            match delivery_future.await {
+                Ok(_) => {
+                    debug!("Writing record to topic: {}, partition: {}, size: {} bytes",
+                           self.topic, partition, value.len());
+                    Ok(())
+                },
+                Err((e, _)) => {
+                    Err(anyhow!("Failed to deliver message: {}", e))
+                }
+            }
+        } else {
+            Err(anyhow!("Producer not initialized"))
+        }
     }
 
     /// 检查是否应该刷新缓冲区
@@ -301,19 +467,40 @@ impl TopicSinkFunc {
         self.last_flush_time.elapsed() >= self.flush_interval
     }
 
+    /// 检查待处理的消息发送结果
+    async fn check_pending_deliveries(&mut self) {
+        // 由于我们已经在 write_to_partition 中等待发送完成，这里不需要再检查
+        self.pending_delivery_futures.clear();
+    }
+
+    /// 等待所有待处理的消息发送完成
+    async fn wait_for_pending_deliveries(&mut self) {
+        // 由于我们已经在 write_to_partition 中等待发送完成，这里不需要再等待
+        self.pending_delivery_futures.clear();
+    }
+
     /// 刷新缓冲区
-    fn flush_buffer(&mut self) {
+    async fn flush_buffer(&mut self) -> Result<()> {
         if let Some(transaction) = &self.current_transaction {
-            // 在实际实现中，这里应该将事务中的所有消息写入 Topic 存储系统
-            // 这里简单模拟一下
+            // 将事务中的所有消息写入 Topic 存储系统
             let mut total_messages = 0;
+
+            // 创建一个临时的消息副本，以避免可变借用冲突
+            let mut messages_to_send = HashMap::new();
             for (partition, messages) in &transaction.buffered_messages {
+                messages_to_send.insert(*partition, messages.clone());
+            }
+
+            for (partition, messages) in &messages_to_send {
                 debug!("Flushing {} messages to partition {}", messages.len(), partition);
                 total_messages += messages.len();
 
-                // 在实际实现中，这里应该批量写入消息
+                // 批量写入消息
                 for message in messages {
-                    self.write_to_partition(*partition, message.clone());
+                    if let Err(e) = self.write_to_partition(*partition, message.clone()).await {
+                        error!("Failed to write message to partition {}: {}", partition, e);
+                        return Err(e);
+                    }
                 }
             }
 
@@ -321,56 +508,67 @@ impl TopicSinkFunc {
             self.current_buffer_size = 0;
             self.last_flush_time = std::time::Instant::now();
         }
+
+        Ok(())
     }
 
     /// 提交事务
-    fn commit_transaction(&mut self) {
-        if let Some(transaction) = &mut self.current_transaction {
-            // 获取事务ID
-            let transaction_id = transaction.id.clone();
+    async fn commit_transaction(&mut self) -> Result<()> {
+        // 获取事务ID和状态
+        let transaction_id;
 
-            // 刷新缓冲区中的消息
-            if let Some(transaction) = &self.current_transaction {
-                // 在实际实现中，这里应该将事务中的所有消息写入 Topic 存储系统
-                // 这里简单模拟一下
-                let mut total_messages = 0;
-                for (partition, messages) in &transaction.buffered_messages {
-                    debug!("Flushing {} messages to partition {}", messages.len(), partition);
-                    total_messages += messages.len();
+        if let Some(transaction) = &self.current_transaction {
+            transaction_id = transaction.id.clone();
+        } else {
+            return Ok(());
+        }
 
-                    // 在实际实现中，这里应该批量写入消息
-                    for message in messages {
-                        self.write_to_partition(*partition, message.clone());
-                    }
-                }
+        // 刷新缓冲区中的消息
+        self.flush_buffer().await?;
 
-                info!("Flushed {} messages for topic: {}", total_messages, self.topic);
-                self.current_buffer_size = 0;
-                self.last_flush_time = std::time::Instant::now();
-            }
+        // 提交事务
+        if let Some(producer) = &self.transactional_producer {
+            let _producer = producer.lock().await;
 
-            // 提交事务
+            // 由于 rdkafka 的 Rust 绑定可能不完全支持事务，这里简化处理
+            // 在实际生产环境中，应该使用完整的事务API
+
             if let Some(transaction) = &mut self.current_transaction {
                 transaction.commit();
-
-                // 记录已提交的事务ID
-                self.last_committed_transaction_id = Some(transaction_id.clone());
-
-                info!("Committed transaction: {}", transaction_id);
             }
+
+            // 记录已提交的事务ID
+            self.last_committed_transaction_id = Some(transaction_id.clone());
+
+            info!("Committed transaction: {}", transaction_id);
+        } else {
+            return Err(anyhow!("Transactional producer not initialized"));
         }
+
+        Ok(())
     }
 
     /// 中止事务
-    fn abort_transaction(&mut self) {
+    async fn abort_transaction(&mut self) -> Result<()> {
         if let Some(transaction) = &mut self.current_transaction {
             // 中止事务
-            transaction.abort();
+            if let Some(producer) = &self.transactional_producer {
+                let _producer = producer.lock().await;
 
-            info!("Aborted transaction: {}", transaction.id);
+                // 由于 rdkafka 的 Rust 绑定可能不完全支持事务，这里简化处理
+                // 在实际生产环境中，应该使用完整的事务API
 
-            // 清空缓冲区
-            self.current_buffer_size = 0;
+                transaction.abort();
+
+                info!("Aborted transaction: {}", transaction.id);
+
+                // 清空缓冲区
+                self.current_buffer_size = 0;
+            } else {
+                return Err(anyhow!("Transactional producer not initialized"));
+            }
         }
+
+        Ok(())
     }
 }

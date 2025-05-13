@@ -239,24 +239,38 @@ impl Connector for TopicConnector {
                     SourceOffset::Latest => source::SourceOffset::Latest,
                 };
 
-                Ok(ConstructedOperator::from_source(Box::new(
-                    TopicSourceFunc {
-                        topic: table.topic,
-                        offset_mode,
-                        format: config
-                            .format
-                            .ok_or_else(|| anyhow!("format required for topic source"))?,
-                        framing: config.framing,
-                        bad_data: config.bad_data,
-                        metadata_fields: config.metadata_fields,
-                        // 默认批处理配置
-                        batch_size: 100,
-                        // 默认预取配置
-                        prefetch_count: 1000,
-                        // 默认预取超时
-                        prefetch_timeout: std::time::Duration::from_millis(500),
-                    },
-                )))
+                // 创建 TopicSourceFunc 实例
+                let mut source_func = TopicSourceFunc {
+                    topic: table.topic,
+                    offset_mode,
+                    format: config
+                        .format
+                        .ok_or_else(|| anyhow!("format required for topic source"))?,
+                    framing: config.framing,
+                    bad_data: config.bad_data,
+                    metadata_fields: config.metadata_fields,
+                    // 默认批处理配置
+                    batch_size: 100,
+                    // 默认预取配置
+                    prefetch_count: 1000,
+                    // 默认预取超时
+                    prefetch_timeout: std::time::Duration::from_millis(500),
+                    // 默认服务器地址
+                    bootstrap_servers: "localhost:9092".to_string(),
+                    // 默认消费者组ID
+                    group_id: None,
+                    // 默认客户端配置
+                    client_configs: std::collections::HashMap::new(),
+                    // 默认消费者实例
+                    consumer: None,
+                };
+
+                // 从环境变量中获取服务器地址
+                if let Ok(servers) = std::env::var("ARROYO_TOPIC_BOOTSTRAP_SERVERS") {
+                    source_func.bootstrap_servers = servers;
+                }
+
+                Ok(ConstructedOperator::from_source(Box::new(source_func)))
             },
             TableType::Sink { .. } => {
                 let serializer = ArrowSerializer::new(
@@ -266,7 +280,7 @@ impl Connector for TopicConnector {
                 );
 
                 // 创建 TopicSinkFunc 实例
-                let sink_func = TopicSinkFunc::new(table.topic, serializer)
+                let mut sink_func = TopicSinkFunc::new(table.topic, serializer)
                     // 默认使用轮询分区策略
                     .with_partition_strategy(sink::PartitionStrategy::RoundRobin)
                     // 默认启用事务
@@ -277,6 +291,11 @@ impl Connector for TopicConnector {
                     .with_flush_interval(std::time::Duration::from_secs(1))
                     // 默认缓冲区大小限制为 1000 条消息
                     .with_buffer_size_limit(1000);
+
+                // 从环境变量中获取服务器地址
+                if let Ok(servers) = std::env::var("ARROYO_TOPIC_BOOTSTRAP_SERVERS") {
+                    sink_func = sink_func.with_bootstrap_servers(servers);
+                }
 
                 Ok(ConstructedOperator::from_operator(Box::new(sink_func)))
             },
