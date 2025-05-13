@@ -48,6 +48,10 @@ mod updating_cache;
 pub mod utils;
 pub mod watermark_generator;
 pub mod window_fn;
+pub mod window_assigner;
+pub mod window_operator;
+pub mod window_trigger;
+pub mod window_assigners;
 
 pub struct ValueExecutionOperator {
     name: String,

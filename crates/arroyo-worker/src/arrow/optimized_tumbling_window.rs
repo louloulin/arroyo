@@ -20,8 +20,9 @@ use datafusion::execution::context::SessionContext;
 use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
+use datafusion_proto::physical_plan::from_proto::parse_physical_expr;
 use datafusion_proto::protobuf::{PhysicalExprNode, PhysicalPlanNode};
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{stream::FuturesUnordered, StreamExt, FutureExt};
 use prost::Message;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::Mutex;
@@ -294,34 +295,42 @@ impl<K: Copy + std::hash::Hash + Eq + Send + Sync + 'static + std::cmp::Ord> Arr
         let mut futures = self.futures.lock().await;
         let mut completed = Vec::new();
 
-        while let Some((bin, result)) = futures.next().now_or_never() {
+        // 检查是否有已完成的 future
+        if let Some(Some((bin, result))) = futures.next().now_or_never() {
             if let Some((batch_result, next_exec)) = result {
-                let batch = batch_result.expect("should be able to compute batch");
-                let bin_start = unsafe { std::mem::transmute_copy(&bin) };
+                // batch_result 是 Result<RecordBatch, DataFusionError>
+                match batch_result {
+                    Ok(batch) => {
+                        let bin_start = unsafe { std::mem::transmute_copy(&bin) };
 
-                // 将结果保存到状态
-                let table = ctx
-                    .table_manager
-                    .get_expiring_time_key_table("t", ctx.last_present_watermark())
-                    .await
-                    .expect("should be able to load table");
+                        // 将结果保存到状态
+                        let table = ctx
+                            .table_manager
+                            .get_expiring_time_key_table("t", ctx.last_present_watermark())
+                            .await
+                            .expect("should be able to load table");
 
-                let state_batch = Self::add_bin_start_as_timestamp(
-                    &batch,
-                    bin_start,
-                    self.partial_schema.schema.clone(),
-                )
-                .expect("should be able to add timestamp");
+                        let state_batch = Self::add_bin_start_as_timestamp(
+                            &batch,
+                            bin_start,
+                            self.partial_schema.schema.clone(),
+                        )
+                        .expect("should be able to add timestamp");
 
-                table.insert(bin_start, state_batch);
+                        table.insert(bin_start, state_batch);
 
-                // 保存完成的批次
-                let exec = self.execs.get_mut(&bin).unwrap();
-                exec.finished_batches.push(batch);
+                        // 保存完成的批次
+                        let exec = self.execs.get_mut(&bin).unwrap();
+                        exec.finished_batches.push(batch);
 
-                // 继续处理下一个批次
-                exec.active_exec = Some(next_exec.clone());
-                completed.push(next_exec);
+                        // 继续处理下一个批次
+                        exec.active_exec = Some(next_exec.clone());
+                        completed.push(next_exec);
+                    },
+                    Err(_) => {
+                        // 处理错误
+                    }
+                }
             }
         }
 
@@ -350,26 +359,35 @@ impl<K: Copy + std::hash::Hash + Eq + Send + Sync + 'static + std::cmp::Ord> Arr
 
         for (bin, exec) in &mut self.execs {
             if let Some(active_exec) = exec.active_exec.take() {
+                // 使用 clone 避免所有权问题
+                let current_exec_clone = active_exec.clone();
                 let mut current_exec = active_exec;
 
-                while let Some((batch_result, next_exec)) = current_exec.now_or_never() {
-                    current_exec = next_exec;
+                if let Some(next_result) = current_exec_clone.now_or_never() {
+                    // 直接解构 next_result，它已经是 (K, Option<(Result<RecordBatch, DataFusionError>, NextBatchFuture<K>)>)
+                    let (_, result) = next_result;
+                    if let Some((batch_result, next_exec)) = result {
+                        current_exec = next_exec;
 
-                    if let Some(batch) = batch_result {
-                        let batch = batch.expect("should be able to compute batch");
-                        let bin_start = unsafe { std::mem::transmute_copy(bin) };
+                        // batch_result 是 Result<RecordBatch, DataFusionError>
+                        match batch_result {
+                            Ok(batch) => {
+                                let bin_start = unsafe { std::mem::transmute_copy(bin) };
 
-                        let state_batch = Self::add_bin_start_as_timestamp(
-                            &batch,
-                            bin_start,
-                            self.partial_schema.schema.clone(),
-                        )
-                        .expect("should be able to add timestamp");
+                                let state_batch = Self::add_bin_start_as_timestamp(
+                                    &batch,
+                                    bin_start,
+                                    self.partial_schema.schema.clone(),
+                                )
+                                .expect("should be able to add timestamp");
 
-                        table.insert(bin_start, state_batch);
-                        exec.finished_batches.push(batch);
-                    } else {
-                        break;
+                                table.insert(bin_start, state_batch);
+                                exec.finished_batches.push(batch);
+                            },
+                            Err(_) => {
+                                break;
+                            }
+                        }
                     }
                 }
 
@@ -390,29 +408,47 @@ impl<K: Copy + std::hash::Hash + Eq + Send + Sync + 'static + std::cmp::Ord> Arr
                     let bin_start = unsafe { std::mem::transmute_copy(&bin) };
 
                     // 计算最终结果
-                    let mut final_batches = self.final_batches_passer.write().unwrap();
-                    final_batches.clear();
-                    final_batches.extend(exec.finished_batches);
+                    {
+                        let mut final_batches = self.final_batches_passer.write().unwrap();
+                        final_batches.clear();
+                        final_batches.extend(exec.finished_batches.clone());
+                    } // 在这里释放锁
 
                     // 执行最终聚合
-                    let final_result = self.finish_execution_plan
+                    let stream = self.finish_execution_plan
                         .execute(0, SessionContext::new().task_ctx())
-                        .unwrap()
-                        .collect()
-                        .await
                         .unwrap();
 
+                    let mut final_result = Vec::new();
+                    let batches = stream.collect::<Vec<_>>().await;
+
+                    // 处理批次
+                    for batch_result in batches {
+                        if let Ok(batch) = batch_result {
+                            final_result.push(batch);
+                        }
+                    }
+
                     // 应用最终投影（如果有）
-                    let final_result = if let Some(final_projection) = &self.final_projection {
-                        final_projection
+                    if let Some(final_projection) = &self.final_projection {
+                        let stream = final_projection
                             .execute(0, SessionContext::new().task_ctx())
-                            .unwrap()
-                            .collect()
-                            .await
-                            .unwrap()
-                    } else {
-                        final_result
-                    };
+                            .unwrap();
+
+                        let mut projected_result = Vec::new();
+                        let batches = stream.collect::<Vec<_>>().await;
+
+                        // 处理批次
+                        for batch_result in batches {
+                            if let Ok(batch) = batch_result {
+                                projected_result.push(batch);
+                            }
+                        }
+
+                        if !projected_result.is_empty() {
+                            final_result = projected_result;
+                        }
+                    }
 
                     // 发送结果
                     for batch in final_result {
@@ -430,8 +466,13 @@ impl<K: Copy + std::hash::Hash + Eq + Send + Sync + 'static + std::cmp::Ord> Arr
         }
 
         // 刷新表
-        if let Watermark::Watermark(timestamp) = watermark {
-            table.flush(Some(timestamp)).await.unwrap();
+        match watermark {
+            Watermark::EventTime(timestamp) => {
+                table.flush(Some(timestamp)).await.unwrap();
+            }
+            Watermark::Idle => {
+                // 对于空闲水印，不需要刷新表
+            }
         }
 
         // 记录缓存统计
@@ -455,13 +496,14 @@ impl<K: Copy + std::hash::Hash + Eq + Send + Sync + 'static + std::cmp::Ord> Arr
         _: &mut dyn Collector,
     ) {
         // 处理检查点
+        let watermark = ctx.last_present_watermark();
         let table = ctx
             .table_manager
-            .get_expiring_time_key_table("t", ctx.last_present_watermark())
+            .get_expiring_time_key_table("t", watermark)
             .await
             .expect("should be able to load table");
 
-        table.flush(ctx.last_present_watermark()).await.unwrap();
+        table.flush(watermark).await.unwrap();
 
         // 清除过期的缓存项
         self.clear_cache().await;
@@ -471,7 +513,7 @@ impl<K: Copy + std::hash::Hash + Eq + Send + Sync + 'static + std::cmp::Ord> Arr
 
     fn tables(&self) -> HashMap<String, TableConfig> {
         let mut tables = HashMap::new();
-        let schema = Arc::new(arrow::datatypes::Schema::new(vec![]));
+        let schema = Arc::new(arrow::datatypes::Schema::new(Vec::<arrow::datatypes::Field>::new()));
         let arroyo_schema = ArroyoSchema::new_unkeyed(schema, 0);
         tables.insert("t".to_string(), timestamp_table_config("t", "Timestamp table for window", self.width * 3, false, arroyo_schema));
         tables
@@ -493,8 +535,17 @@ impl OperatorConstructor for OptimizedTumblingWindowConstructor {
         let width = Duration::from_micros(config.width_micros);
 
         // 解析时间字段表达式
-        let binning_function = PhysicalExprNode::decode(&mut config.binning_function.as_slice())?
-            .try_into_physical_expr(registry.as_ref())?;
+        let binning_function = PhysicalExprNode::decode(&mut config.binning_function.as_slice())?;
+
+        // 创建一个空的 Schema 用于解析表达式
+        let empty_schema = Arc::new(arrow::datatypes::Schema::new(Vec::<arrow::datatypes::Field>::new()));
+
+        let binning_function = parse_physical_expr(
+            &binning_function,
+            registry.as_ref(),
+            &empty_schema,
+            &datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec {}
+        )?;
 
         // 创建接收器和批次传递器
         let receiver = Arc::new(RwLock::new(None));

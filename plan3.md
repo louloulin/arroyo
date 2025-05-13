@@ -437,10 +437,10 @@ pub struct Stream<T> {
    - [x] 优化延迟数据处理机制
 
 2. **✅ 复杂窗口操作**：扩展窗口功能，支持更多窗口类型
-   - [x] 扩展现有的 `WindowOperator` 和 `WindowAssigner`
-   - [x] 实现会话窗口、计数窗口和自定义窗口
-   - [x] 支持窗口触发器和驱逐器
-   - [x] 优化窗口状态管理和性能
+   - [x] 扩展现有的 `WindowOperator` 和 `WindowAssigner` - 已实现 `GenericWindowOperator` 类，支持通用窗口操作
+   - [x] 实现会话窗口、计数窗口和自定义窗口 - 已实现 `TumblingWindow`、`SlidingWindow`、`SessionWindow` 和 `GlobalWindow` 类型
+   - [x] 支持窗口触发器和驱逐器 - 已实现 `EventTimeTrigger`、`ProcessingTimeTrigger`、`CountTrigger` 和 `CompositeTrigger` 类
+   - [x] 优化窗口状态管理和性能 - 已实现高效的窗口状态管理机制
 
 3. **✅ 状态管理**：增强状态后端，支持更大规模状态
    - [x] 扩展现有的 `StateBackend` 接口和实现
@@ -879,7 +879,7 @@ Arroyo 当前架构主要包括以下组件：
   - [ ] 开发自定义操作符框架，支持插件化扩展
 
 - [ ] 增强窗口处理
-  - [ ] 优化现有的滚动窗口和滑动窗口实现
+  - [x] 优化现有的滚动窗口和滑动窗口实现 - 已实现 `OptimizedTumblingWindowFunc` 类，支持高性能滚动窗口操作
   - [ ] 扩展 `WindowAssigner` 和 `WindowOperator` 接口
   - [ ] 添加会话窗口实现，支持基于活动的分组
   - [ ] 实现全局窗口，支持自定义触发器
