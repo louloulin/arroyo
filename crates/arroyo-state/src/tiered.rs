@@ -42,6 +42,8 @@ pub struct TieredStorageConfig {
     pub remote_storage: Arc<StorageProvider>,
     /// 缓存过期时间
     pub cache_expiration: Duration,
+    /// 作业ID
+    pub job_id: String,
 }
 
 impl Default for TieredStorageConfig {
@@ -54,6 +56,7 @@ impl Default for TieredStorageConfig {
             local_disk_max_size: 1024 * 1024 * 1024, // 1GB
             remote_storage: Arc::new(StorageProvider::dummy()),
             cache_expiration: Duration::from_secs(60 * 60), // 1 hour
+            job_id: "default".to_string(),
         }
     }
 }
@@ -201,6 +204,22 @@ impl TieredStateBackend {
             memory_cache: RwLock::new(memory_cache),
             config,
         }
+    }
+
+    /// 使用存储提供者和作业ID创建新的分层状态后端
+    pub fn new_with_provider(storage_provider: Arc<StorageProvider>, job_id: String) -> Self {
+        let config = TieredStorageConfig {
+            enable_memory_tier: true,
+            memory_tier_max_size: 100 * 1024 * 1024, // 100MB
+            enable_local_disk_tier: true,
+            local_disk_path: PathBuf::from(format!("/tmp/arroyo/{}/state-cache", job_id)),
+            local_disk_max_size: 1024 * 1024 * 1024, // 1GB
+            remote_storage: storage_provider,
+            cache_expiration: Duration::from_secs(60 * 60), // 1 hour
+            job_id,
+        };
+
+        Self::new(config)
     }
 
     /// 获取本地磁盘缓存路径
@@ -419,6 +438,7 @@ impl TieredStateBackend {
 }
 
 #[async_trait::async_trait]
+/// 实现 BackingStore trait，使 TieredStateBackend 可以作为状态后端使用
 impl BackingStore for TieredStateBackend {
     fn name(&self) -> &'static str {
         "tiered"

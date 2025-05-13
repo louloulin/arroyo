@@ -456,6 +456,8 @@ pub enum StateBackendType {
     OptimizedParquet,
     /// 分层状态后端
     Tiered,
+    /// 分层状态后端
+    Layered,
 }
 
 impl Default for StateBackendType {
@@ -500,6 +502,46 @@ pub struct StateConfig {
     #[serde(default = "default_false")]
     pub enable_incremental_checkpoint: bool,
 
+    /// 是否启用分层状态存储
+    #[serde(default = "default_false")]
+    pub enable_layered_state: bool,
+
+    /// 是否启用分层状态存储的内存层
+    #[serde(default = "default_true")]
+    pub layered_state_enable_memory: bool,
+
+    /// 分层状态存储内存层大小（字节）
+    pub layered_state_memory_size: Option<usize>,
+
+    /// 是否启用分层状态存储的本地磁盘层
+    #[serde(default = "default_true")]
+    pub layered_state_enable_disk: bool,
+
+    /// 分层状态存储本地磁盘层大小（字节）
+    pub layered_state_disk_size: Option<usize>,
+
+    /// 分层状态存储缓存过期时间（秒）
+    pub layered_state_cache_ttl: Option<u64>,
+
+    /// 分层状态存储热点数据比例（0.0-1.0）
+    pub layered_state_hot_ratio: Option<f64>,
+
+    /// 是否启用分层状态存储的预取功能
+    pub layered_state_enable_prefetch: Option<bool>,
+
+    /// 分层状态存储预取阈值
+    pub layered_state_prefetch_threshold: Option<usize>,
+
+    /// 是否启用分层状态存储的压缩功能
+    pub layered_state_enable_compression: Option<bool>,
+
+    /// 分层状态存储压缩级别（0-9）
+    pub layered_state_compression_level: Option<u32>,
+
+    /// 是否启用分层状态后端
+    #[serde(default = "default_false")]
+    pub enable_tiered_state: bool,
+
     /// 最大增量检查点数量
     #[serde(default = "default_max_incremental_checkpoints")]
     pub max_incremental_checkpoints: usize,
@@ -522,6 +564,18 @@ impl Default for StateConfig {
             enable_incremental_checkpoint: default_false(),
             max_incremental_checkpoints: default_max_incremental_checkpoints(),
             incremental_checkpoint_interval: default_incremental_checkpoint_interval(),
+            enable_layered_state: default_false(),
+            enable_tiered_state: default_false(),
+            layered_state_enable_memory: default_true(),
+            layered_state_memory_size: None,
+            layered_state_enable_disk: default_true(),
+            layered_state_disk_size: None,
+            layered_state_cache_ttl: None,
+            layered_state_hot_ratio: None,
+            layered_state_enable_prefetch: None,
+            layered_state_prefetch_threshold: None,
+            layered_state_enable_compression: None,
+            layered_state_compression_level: None,
         }
     }
 }

@@ -892,14 +892,14 @@ Arroyo 当前架构主要包括以下组件：
   - [x] 实现多维窗口，支持复杂分析 - 已实现 `MultiDimensionalWindow` 和 `MultiDimensionalWindowAssigner` 类，支持在多个维度上进行窗口划分和聚合
   - [x] 开发窗口函数库，提供常用聚合函数 - 已实现 `WindowFunction` 接口和 `SumWindowFunction`、`AvgWindowFunction`、`CountWindowFunction`、`MaxWindowFunction`、`MinWindowFunction` 等常用聚合函数
 
-- [ ] 增强状态管理
+- [x] 增强状态管理
   - [x] 优化 `StateBackend` 实现，提高性能
   - [x] 扩展 `ParquetBackend`，支持更大规模状态
-  - [ ] 实现分层状态存储，优化热点数据访问
-  - [ ] 开发增量检查点机制，减少存储开销
-  - [ ] 实现状态索引和查询优化
-  - [ ] 开发状态压缩和清理策略
-  - [ ] 实现状态迁移和重分配机制
+  - [x] 实现分层状态存储，优化热点数据访问（已完成 `LayeredStateBackend` 和 `TieredStateBackend` 实现）
+  - [x] 开发增量检查点机制，减少存储开销（已实现 `IncrementalCheckpointManager`）
+  - [x] 实现状态索引和查询优化（已在 `LayeredStateBackend` 中实现热点数据识别和优化）
+  - [x] 开发状态压缩和清理策略（已在 `LayeredStateBackend` 中实现）
+  - [x] 实现状态迁移和重分配机制（已支持不同存储层之间的数据迁移）
 
 #### 6.3.2 高级流处理功能
 

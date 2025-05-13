@@ -36,6 +36,7 @@ mod tests {
             local_disk_max_size: 100 * 1024 * 1024, // 100MB
             remote_storage: storage_provider.clone(),
             cache_expiration: Duration::from_secs(60), // 1 minute
+            job_id: "test-job".to_string(),
         };
 
         // 创建分层状态后端
@@ -121,6 +122,7 @@ mod tests {
             local_disk_max_size: 100 * 1024 * 1024, // 100MB
             remote_storage: storage_provider.clone(),
             cache_expiration: Duration::from_secs(60), // 1 minute
+            job_id: "test-job".to_string(),
         };
 
         // 创建分层状态后端

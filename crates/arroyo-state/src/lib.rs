@@ -28,6 +28,7 @@ pub mod optimized_parquet;
 pub mod tiered;
 pub mod incremental_checkpoint;
 pub mod state_backend_factory;
+pub mod layered_state;
 pub(crate) mod schemas;
 pub mod tables;
 pub mod two_phase_commit;
@@ -200,16 +201,47 @@ pub(crate) async fn get_storage_provider() -> Result<&'static Arc<StorageProvide
 }
 
 /// 获取状态后端实例
-pub async fn get_state_backend(_job_id: &str) -> Result<Arc<dyn BackingStore>> {
+pub async fn get_state_backend(job_id: &str) -> Result<Arc<dyn BackingStore>> {
+    // 检查是否启用了分层状态存储
+    let config = config();
+    let state_config = &config.pipeline.state;
+
+    if state_config.enable_layered_state {
+        // 创建分层状态后端配置
+        let storage_provider = get_storage_provider().await?;
+
+        let layered_config = layered_state::LayeredStateConfig {
+            enable_memory_tier: state_config.layered_state_enable_memory,
+            memory_tier_max_size: state_config.layered_state_memory_size.unwrap_or(100 * 1024 * 1024), // 默认100MB
+            enable_local_disk_tier: state_config.layered_state_enable_disk,
+            local_disk_path: std::path::PathBuf::from(format!("/tmp/arroyo/{}/state-cache", job_id)),
+            local_disk_max_size: state_config.layered_state_disk_size.unwrap_or(1024 * 1024 * 1024), // 默认1GB
+            remote_storage: storage_provider.clone(),
+            cache_expiration: Duration::from_secs(state_config.layered_state_cache_ttl.unwrap_or(3600)), // 默认1小时
+            hot_data_strategy: layered_state::HotDataStrategy::Weighted,
+            hot_data_ratio: state_config.layered_state_hot_ratio.unwrap_or(0.2), // 默认20%
+            enable_prefetching: state_config.layered_state_enable_prefetch.unwrap_or(true),
+            prefetch_threshold: state_config.layered_state_prefetch_threshold.unwrap_or(3),
+            enable_compression: state_config.layered_state_enable_compression.unwrap_or(true),
+            compression_level: state_config.layered_state_compression_level.unwrap_or(6),
+        };
+
+        // 创建并返回分层状态后端
+        return Ok(Arc::new(layered_state::LayeredStateBackend::new(layered_config)));
+    }
+
     // 使用状态后端工厂创建状态后端
     let state_backend = state_backend_factory::StateBackendFactory::create_state_backend().await?;
 
-    // 将 Box<dyn BackingStore> 转换为 Arc<dyn BackingStore>
-    // 这里我们需要创建一个新的 Arc 包装 Box 中的对象
-    // 由于 Box<dyn BackingStore> 不能直接转换为 Arc<dyn BackingStore>
-    // 我们需要根据具体类型创建新的实例
+    // 如果配置了使用 TieredStateBackend，则创建并返回
+    if state_config.enable_tiered_state {
+        let storage_provider = get_storage_provider().await?;
+        return Ok(Arc::new(tiered::TieredStateBackend::new_with_provider(
+            storage_provider.clone(),
+            job_id.to_string(),
+        )));
+    }
 
-    // 为了简化，我们直接返回一个 ParquetBackend 实例
-    // 在实际应用中，应该根据配置选择合适的后端
+    // 默认使用 ParquetBackend
     Ok(Arc::new(parquet::ParquetBackend))
 }
