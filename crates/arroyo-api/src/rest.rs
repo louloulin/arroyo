@@ -22,7 +22,8 @@ use crate::connection_tables::{
 };
 use crate::connectors::get_connectors;
 use crate::controllers::topics::{
-    check_topic_health, create_topic, delete_topic, get_topic_details, list_topics, update_topic, TopicController,
+    check_topic_health, create_topic, delete_topic, export_topics, get_topic_details,
+    import_topics, list_topics, update_topic, TopicController,
 };
 use std::sync::Arc;
 use crate::jobs::{
@@ -131,12 +132,18 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .allow_headers(cors::Any)
         .allow_origin(cors::Any);
 
+    // 获取 Kafka 服务器地址
+    let kafka_server = std::env::var("KAFKA_SERVER").unwrap_or_else(|_| "localhost:9092".to_string());
+
     // 创建 Topic 控制器
-    let topic_controller = match TopicController::new("localhost:9092") {
+    let topic_controller = match TopicController::new(&kafka_server) {
         Ok(controller) => Arc::new(controller),
         Err(e) => {
             error!("Failed to create TopicController: {:?}", e);
-            Arc::new(TopicController::new("localhost:9092").unwrap())
+            // 如果创建失败，尝试使用默认地址
+            Arc::new(TopicController::new("localhost:9092").unwrap_or_else(|_| {
+                panic!("Failed to create TopicController with default address")
+            }))
         }
     };
 

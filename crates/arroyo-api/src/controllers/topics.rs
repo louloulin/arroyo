@@ -6,6 +6,7 @@ use arroyo_rpc::api_types::topics::{
     TopicListResponse, UpdateTopicRequest,
 };
 use axum::{
+    body::Body,
     extract::{Path, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
@@ -209,14 +210,14 @@ impl TopicController {
                 chrono::Utc::now().format("%Y%m%d%H%M%S"),
                 format);
 
-            let mut response = Response::builder()
+            let response = Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, match format.as_str() {
                     "yaml" => "application/yaml",
                     _ => "application/json",
                 })
                 .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename))
-                .body(content.into())
+                .body(Body::from(content))
                 .map_err(|e| {
                     error!("Failed to build response: {}", e);
                     ApiError::internal_error(format!("Failed to build response: {}", e))
@@ -225,10 +226,19 @@ impl TopicController {
             Ok(response)
         } else {
             // 否则返回 JSON 响应
-            Ok((
-                StatusCode::OK,
-                Json(TopicExportResponse { content, format }),
-            ))
+            let export_response = TopicExportResponse { content, format };
+            let json_body = serde_json::to_string(&export_response).unwrap();
+
+            let response = Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json_body))
+                .map_err(|e| {
+                    error!("Failed to build response: {}", e);
+                    ApiError::internal_error(format!("Failed to build response: {}", e))
+                })?;
+
+            Ok(response)
         }
     }
 
@@ -271,7 +281,7 @@ impl TopicController {
 
             // 创建 Topic
             match self.admin.create_topic(config, user_id).await {
-                Ok(info) => {
+                Ok(_) => {
                     info!("Created topic: {}", config.name);
                     imported_topics.push(config.name.clone());
                 }

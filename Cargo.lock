@@ -477,6 +477,7 @@ dependencies = [
  "arroyo-udf-python",
  "axum 0.7.9",
  "axum-extra",
+ "chrono",
  "cornucopia",
  "cornucopia_async",
  "futures",
@@ -873,7 +874,7 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -971,20 +972,28 @@ dependencies = [
 name = "arroyo-storage"
 version = "0.15.0-dev"
 dependencies = [
+ "anyhow",
  "arroyo-rpc",
  "arroyo-types",
  "async-trait",
  "aws-config",
  "aws-credential-types",
  "bytes",
+ "chrono",
  "futures",
+ "lz4",
  "object_store",
  "rand 0.9.0",
  "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
  "thiserror 2.0.12",
  "tokio",
  "tokio-util",
  "tracing",
+ "zstd 0.12.4",
 ]
 
 [[package]]
@@ -1170,8 +1179,8 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "xz2",
- "zstd",
- "zstd-safe",
+ "zstd 0.13.3",
+ "zstd-safe 7.2.1",
 ]
 
 [[package]]
@@ -3094,7 +3103,7 @@ dependencies = [
  "url",
  "uuid",
  "xz2",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -4227,7 +4236,7 @@ dependencies = [
  "serde",
  "snap",
  "thiserror 2.0.12",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -6053,6 +6062,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "lz4"
+version = "1.28.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a20b523e860d03443e98350ceaac5e71c6ba89aea7d960769ec3ce37f4de5af4"
+dependencies = [
+ "lz4-sys",
+]
+
+[[package]]
+name = "lz4-sys"
+version = "1.11.1+lz4-1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bd8c0d6c6ed0cd30b3652886bb8711dc4bb01d637a68105a3d5158039b418e6"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "lz4_flex"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6885,7 +6913,7 @@ dependencies = [
  "thrift",
  "tokio",
  "twox-hash",
- "zstd",
+ "zstd 0.13.3",
  "zstd-sys",
 ]
 
@@ -10129,7 +10157,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -11629,11 +11657,30 @@ dependencies = [
 
 [[package]]
 name = "zstd"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a27595e173641171fc74a1232b7b1c7a7cb6e18222c11e9dfb9888fa424c53c"
+dependencies = [
+ "zstd-safe 6.0.6",
+]
+
+[[package]]
+name = "zstd"
 version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
 dependencies = [
- "zstd-safe",
+ "zstd-safe 7.2.1",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "6.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee98ffd0b48ee95e6c5168188e44a54550b1564d9d530ee21d5f0eaed1069581"
+dependencies = [
+ "libc",
+ "zstd-sys",
 ]
 
 [[package]]

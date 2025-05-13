@@ -25,6 +25,12 @@ use thiserror::Error;
 use tracing::{debug, error};
 
 mod aws;
+pub mod log_segment;
+
+#[cfg(test)]
+pub mod tests {
+    pub mod mock_storage;
+}
 
 /// A reference-counted reference to a [StorageProvider].
 pub type StorageProviderRef = Arc<StorageProvider>;

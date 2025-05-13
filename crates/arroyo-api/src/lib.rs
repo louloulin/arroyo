@@ -64,6 +64,11 @@ mod rest_utils;
 pub mod sql;
 mod udfs;
 
+#[cfg(test)]
+mod tests {
+    // Integration tests are included in the controllers module
+}
+
 include!(concat!(env!("OUT_DIR"), "/api-sql.rs"));
 
 fn default_max_nexmark_qps() -> f64 {
