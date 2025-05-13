@@ -49,7 +49,7 @@ impl TimeSeriesAnalysisEngine {
             .schema
             .fields()
             .iter()
-            .position(|f| f.name() == config.time_field)
+            .position(|f| *f.name() == config.time_field)
             .ok_or_else(|| anyhow!("Time field not found: {}", config.time_field))?;
 
         // 查找值字段索引
@@ -57,7 +57,7 @@ impl TimeSeriesAnalysisEngine {
             .schema
             .fields()
             .iter()
-            .position(|f| f.name() == config.value_field)
+            .position(|f| *f.name() == config.value_field)
             .ok_or_else(|| anyhow!("Value field not found: {}", config.value_field))?;
 
         // 查找相关性字段索引
@@ -69,7 +69,7 @@ impl TimeSeriesAnalysisEngine {
                     .schema
                     .fields()
                     .iter()
-                    .position(|f| f.name() == field)
+                    .position(|f| *f.name() == *field)
                     .ok_or_else(|| anyhow!("Correlation field not found: {}", field))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -116,7 +116,16 @@ impl TimeSeriesAnalysisEngine {
 
         // 处理每一行数据
         for row_idx in 0..batch.num_rows() {
-            let event_time = from_nanos(timestamp_array.value(row_idx));
+            // 将 i64 转换为 u128
+            let timestamp_value = timestamp_array.value(row_idx);
+            let timestamp_u128 = if timestamp_value >= 0 {
+                timestamp_value as u128
+            } else {
+                // 处理负时间戳（通常不应该出现）
+                return Err(anyhow!("Negative timestamp encountered: {}", timestamp_value));
+            };
+
+            let event_time = from_nanos(timestamp_u128);
             let value = value_array.value(row_idx);
 
             // 添加到时间序列数据
@@ -144,7 +153,14 @@ impl TimeSeriesAnalysisEngine {
 
     /// 处理水印
     pub fn process_watermark(&mut self, watermark: &Watermark) -> Result<Option<TimeSeriesAnalysisResult>> {
-        let watermark_time = watermark.timestamp;
+        let watermark_time = match watermark {
+            Watermark::EventTime(time) => *time,
+            Watermark::Idle => {
+                // 对于空闲水印，我们可以使用当前系统时间
+                SystemTime::now()
+            }
+        };
+
         self.last_watermark = Some(watermark_time);
 
         // 清理过期数据
@@ -238,7 +254,7 @@ impl TimeSeriesAnalysisEngine {
             }
             MovingAverageType::Exponential => {
                 // 指数移动平均
-                let alpha = self.config.ema_alpha;
+                let alpha = self.config.ema_alpha as f64;
                 let mut ema = self.time_series_data[0].1;
 
                 for i in 0..self.time_series_data.len() {
@@ -262,7 +278,7 @@ impl TimeSeriesAnalysisEngine {
     // 其他分析方法将在后续实现
     fn compute_exponential_moving_average(&self) -> Result<Option<TimeSeriesAnalysisResult>> {
         // 简化实现，实际上与 MovingAverageType::Exponential 相同
-        let alpha = self.config.ema_alpha;
+        let alpha = self.config.ema_alpha as f64;
         let mut ema = self.time_series_data[0].1;
         let mut processed_series = Vec::with_capacity(self.time_series_data.len());
 
@@ -292,9 +308,12 @@ impl TimeSeriesAnalysisEngine {
         let x: Vec<f64> = (0..self.time_series_data.len()).map(|i| i as f64).collect();
         let y: Vec<f64> = self.time_series_data.iter().map(|(_, v)| *v).collect();
 
+        // 创建数据对
+        let data_pairs = vec![("x", x), ("y", y)];
+
         // 线性回归
         let data = RegressionDataBuilder::new()
-            .build_from(x.as_slice(), y.as_slice())
+            .build_from(data_pairs)
             .map_err(|e| anyhow!("Failed to build regression data: {}", e))?;
 
         let formula = FormulaRegressionBuilder::new()
@@ -392,7 +411,7 @@ impl TimeSeriesAnalysisEngine {
         let std_dev = variance.sqrt();
 
         // 检测异常
-        let threshold = self.config.anomaly_threshold * std_dev;
+        let threshold = self.config.anomaly_threshold as f64 * std_dev;
         let mut anomalies = Vec::new();
 
         for (i, (time, value)) in self.time_series_data.iter().enumerate() {

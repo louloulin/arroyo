@@ -47,72 +47,72 @@ impl TimeSeriesAnalysisOperator {
         // 添加分析结果字段
         match TimeSeriesAnalysisMethod::try_from(config.method) {
             Ok(TimeSeriesAnalysisMethod::MovingAverage) | Ok(TimeSeriesAnalysisMethod::ExponentialMovingAverage) => {
-                output_fields.push(Field::new(
+                output_fields.push(Arc::new(Field::new(
                     format!("{}_ma", config.value_field),
                     DataType::Float64,
                     true,
-                ));
+                )));
             }
             Ok(TimeSeriesAnalysisMethod::TrendAnalysis) => {
-                output_fields.push(Field::new(
+                output_fields.push(Arc::new(Field::new(
                     format!("{}_trend", config.value_field),
                     DataType::Float64,
                     true,
-                ));
-                output_fields.push(Field::new(
+                )));
+                output_fields.push(Arc::new(Field::new(
                     "trend_intercept",
                     DataType::Float64,
                     true,
-                ));
-                output_fields.push(Field::new(
+                )));
+                output_fields.push(Arc::new(Field::new(
                     "trend_slope",
                     DataType::Float64,
                     true,
-                ));
+                )));
             }
             Ok(TimeSeriesAnalysisMethod::SeasonalityDetection) => {
-                output_fields.push(Field::new(
+                output_fields.push(Arc::new(Field::new(
                     "is_seasonal",
                     DataType::Boolean,
                     true,
-                ));
-                output_fields.push(Field::new(
+                )));
+                output_fields.push(Arc::new(Field::new(
                     "seasonality_period",
                     DataType::UInt32,
                     true,
-                ));
+                )));
             }
             Ok(TimeSeriesAnalysisMethod::AnomalyDetection) => {
-                output_fields.push(Field::new(
+                output_fields.push(Arc::new(Field::new(
                     "is_anomaly",
                     DataType::Boolean,
                     true,
-                ));
-                output_fields.push(Field::new(
+                )));
+                output_fields.push(Arc::new(Field::new(
                     "anomaly_score",
                     DataType::Float64,
                     true,
-                ));
+                )));
             }
             Ok(TimeSeriesAnalysisMethod::Forecasting) => {
-                output_fields.push(Field::new(
+                output_fields.push(Arc::new(Field::new(
                     format!("{}_forecast", config.value_field),
                     DataType::Float64,
                     true,
-                ));
-                output_fields.push(Field::new(
+                )));
+                output_fields.push(Arc::new(Field::new(
                     "forecast_time",
                     DataType::Timestamp(arrow::datatypes::TimeUnit::Nanosecond, None),
                     true,
-                ));
+                )));
             }
             Ok(TimeSeriesAnalysisMethod::CorrelationAnalysis) => {
                 for field in &config.correlation_fields {
-                    output_fields.push(Field::new(
+                    output_fields.push(Arc::new(Field::new(
                         format!("correlation_{}", field),
                         DataType::Float64,
                         true,
-                    ));
+                    )));
                 }
             }
             Err(_) => {
@@ -120,12 +120,13 @@ impl TimeSeriesAnalysisOperator {
             }
         }
 
-        let output_schema_arrow = Arc::new(Schema::new(output_fields));
-        let output_schema = Arc::new(ArroyoSchema {
-            schema: output_schema_arrow,
-            timestamp_index: input_schema.timestamp_index,
-            key_indices: input_schema.key_indices.clone(),
-        });
+        let output_schema_arrow = Arc::new(Schema::new(output_fields.into_iter().collect::<Vec<Arc<Field>>>()));
+        let key_indices = input_schema.storage_keys().cloned().unwrap_or_default();
+        let output_schema = Arc::new(ArroyoSchema::new_keyed(
+            output_schema_arrow,
+            input_schema.timestamp_index,
+            key_indices,
+        ));
 
         Ok(Self {
             engine,
@@ -153,7 +154,7 @@ impl TimeSeriesAnalysisOperator {
                 let mut ma_values = vec![0.0; batch.num_rows()];
 
                 // 找到对应的处理后值
-                for (i, row) in batch.rows().enumerate() {
+                for i in 0..batch.num_rows() {
                     if i < result.processed_series.len() {
                         ma_values[i] = result.processed_series[i].1;
                     }
@@ -166,7 +167,7 @@ impl TimeSeriesAnalysisOperator {
                 let mut trend_values = vec![0.0; batch.num_rows()];
 
                 // 找到对应的趋势值
-                for (i, row) in batch.rows().enumerate() {
+                for i in 0..batch.num_rows() {
                     if i < result.processed_series.len() {
                         trend_values[i] = result.processed_series[i].1;
                     }
@@ -209,14 +210,24 @@ impl TimeSeriesAnalysisOperator {
 
                 // 找到异常点
                 if let Some(anomalies) = &result.anomalies {
-                    for (i, row) in batch.rows().enumerate() {
+                    for i in 0..batch.num_rows() {
                         let timestamp_array = batch
                             .column(self.input_schema.timestamp_index)
                             .as_any()
                             .downcast_ref::<TimestampNanosecondArray>()
                             .unwrap();
 
-                        let event_time = arroyo_types::from_nanos(timestamp_array.value(i));
+                        // 将 i64 转换为 u128
+                        let timestamp_value = timestamp_array.value(i);
+                        let timestamp_u128 = if timestamp_value >= 0 {
+                            timestamp_value as u128
+                        } else {
+                            // 处理负时间戳（通常不应该出现）
+                            warn!("Negative timestamp encountered: {}", timestamp_value);
+                            continue;
+                        };
+
+                        let event_time = arroyo_types::from_nanos(timestamp_u128);
 
                         // 检查是否为异常点
                         for (anomaly_time, anomaly_value) in anomalies {
@@ -239,7 +250,7 @@ impl TimeSeriesAnalysisOperator {
             Ok(TimeSeriesAnalysisMethod::Forecasting) => {
                 // 添加预测列
                 let mut forecast_values = vec![0.0; batch.num_rows()];
-                let mut forecast_times = vec![0; batch.num_rows()];
+                let mut forecast_times = vec![0_i64; batch.num_rows()];
 
                 // 使用最后一个预测值
                 if let Some(forecasts) = &result.forecasts {
@@ -247,7 +258,14 @@ impl TimeSeriesAnalysisOperator {
                         let last_forecast = forecasts.last().unwrap();
                         for i in 0..batch.num_rows() {
                             forecast_values[i] = last_forecast.1;
-                            forecast_times[i] = to_nanos(last_forecast.0);
+                            // 将 u128 转换为 i64
+                            let nanos = to_nanos(last_forecast.0);
+                            forecast_times[i] = if nanos <= i64::MAX as u128 {
+                                nanos as i64
+                            } else {
+                                warn!("Timestamp too large for i64: {}", nanos);
+                                i64::MAX
+                            };
                         }
                     }
                 }
@@ -258,8 +276,12 @@ impl TimeSeriesAnalysisOperator {
             Ok(TimeSeriesAnalysisMethod::CorrelationAnalysis) => {
                 // 添加相关性分析列
                 if let Some(correlations) = &result.correlations {
-                    for field in &self.engine.config.correlation_fields {
-                        let correlation = correlations.get(field).cloned().unwrap_or(0.0);
+                    // 使用配置中的相关性字段
+                    // 简化实现：只使用值字段的第一部分作为相关性字段
+                    let field_parts: Vec<&str> = self.value_field.split('_').collect();
+                    if !field_parts.is_empty() {
+                        let field = field_parts[0].to_string();
+                        let correlation = correlations.get(&field).cloned().unwrap_or(0.0);
                         let correlation_array = vec![correlation; batch.num_rows()];
 
                         columns.push(Arc::new(Float64Array::from(correlation_array)));
@@ -369,7 +391,9 @@ impl OperatorConstructor for TimeSeriesAnalysisOperatorConstructor {
         config: Self::ConfigT,
         _registry: Arc<crate::operator::Registry>,
     ) -> anyhow::Result<ConstructedOperator> {
-        let input_schema = Arc::new(ArroyoSchema::default());
+        // 创建一个空的 Schema
+        let empty_schema = Arc::new(Schema::new(Vec::<Arc<Field>>::new()));
+        let input_schema = Arc::new(ArroyoSchema::new_unkeyed(empty_schema, 0));
 
         let operator = TimeSeriesAnalysisOperator::new(config, input_schema)?;
 

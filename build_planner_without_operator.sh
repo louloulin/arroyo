@@ -1,3 +1,20 @@
+#!/bin/bash
+# 此脚本用于构建 arroyo-planner 模块，而不构建 arroyo-operator 模块
+# 通过临时修改 Cargo.toml 文件，移除 arroyo-operator 依赖
+# 构建完成后恢复原始的 Cargo.toml 文件
+
+set -e  # 遇到错误立即退出
+
+echo "开始构建 arroyo-planner 模块，不包含 arroyo-operator 依赖..."
+
+# 创建临时目录
+mkdir -p temp_build
+
+# 复制 arroyo-planner 的 Cargo.toml 文件
+cp crates/arroyo-planner/Cargo.toml temp_build/Cargo.toml.bak
+
+# 修改 Cargo.toml 文件，移除 arroyo-operator 依赖
+cat > crates/arroyo-planner/Cargo.toml << EOF
 [package]
 name = "arroyo-planner"
 version = "0.15.0-dev"
@@ -53,3 +70,18 @@ rstest = { version = "0.25" }
 
 [build-dependencies]
 glob = "0.3.1"
+EOF
+
+echo "修改后的 Cargo.toml 文件已创建，开始构建..."
+
+# 尝试构建
+cargo build -p arroyo-planner --lib --no-default-features --features="planner,no-operator"
+
+# 构建完成后，恢复原始的 Cargo.toml 文件
+mv temp_build/Cargo.toml.bak crates/arroyo-planner/Cargo.toml
+
+# 清理临时目录
+rm -rf temp_build
+
+echo "构建完成！原始的 Cargo.toml 文件已恢复。"
+echo "现在可以使用 arroyo-planner 模块，而不依赖于 arroyo-operator 模块。"

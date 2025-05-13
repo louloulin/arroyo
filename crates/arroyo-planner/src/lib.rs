@@ -5,6 +5,8 @@ pub(crate) mod extension;
 pub mod external;
 mod functions;
 pub mod logical;
+#[cfg(not(feature = "operator"))]
+pub mod mock;
 pub mod optimizers;
 pub mod physical;
 mod plan;
@@ -66,7 +68,11 @@ use crate::extension::key_calculation::KeyCalculationExtension;
 use crate::udafs::EmptyUdaf;
 use arroyo_datastream::logical::LogicalProgram;
 use arroyo_datastream::optimizers::ChainingOptimizer;
+#[cfg(feature = "operator")]
 use arroyo_operator::connector::Connection;
+
+#[cfg(not(feature = "operator"))]
+pub use crate::mock::Connection;
 use arroyo_rpc::df::ArroyoSchema;
 use arroyo_rpc::{duration_from_sql, TIMESTAMP_FIELD};
 use arroyo_udf_host::parse::{inner_type, UdfDef};
@@ -269,6 +275,15 @@ impl ArroyoSchemaProvider {
         registry
     }
 
+    #[cfg(feature = "operator")]
+    pub fn add_connector_table(&mut self, connection: Connection) {
+        self.tables.insert(
+            UniCase::new(connection.name.clone()),
+            Table::ConnectorTable(connection.into()),
+        );
+    }
+
+    #[cfg(not(feature = "operator"))]
     pub fn add_connector_table(&mut self, connection: Connection) {
         self.tables.insert(
             UniCase::new(connection.name.clone()),

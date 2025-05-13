@@ -6,14 +6,24 @@ use crate::{
 };
 use crate::{rewrite_plan, DEFAULT_IDLE_TIME};
 use arrow_schema::{DataType, Field, FieldRef, Schema};
+#[cfg(feature = "operator")]
 use arroyo_connectors::connector_for_type;
+#[cfg(feature = "operator")]
 use arroyo_datastream::default_sink;
+#[cfg(feature = "operator")]
 use arroyo_operator::connector::Connection;
+#[cfg(not(feature = "operator"))]
+use crate::Connection;
 use arroyo_rpc::api_types::connections::{
     ConnectionProfile, ConnectionSchema, ConnectionType, SourceField,
 };
+#[cfg(feature = "operator")]
 use arroyo_rpc::formats::{BadData, Format, Framing, JsonFormat};
+#[cfg(not(feature = "operator"))]
+use arroyo_rpc::formats::{Format, Framing, JsonFormat};
+#[cfg(feature = "operator")]
 use arroyo_rpc::grpc::api::ConnectorOp;
+#[cfg(feature = "operator")]
 use arroyo_rpc::ConnectorOptions;
 use arroyo_types::ArroyoExtensionType;
 use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion, TreeNodeVisitor};
@@ -64,39 +74,20 @@ use tracing::warn;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ConnectorTable {
-    pub id: Option<i64>,
-    pub connector: String,
+    pub connection_id: i64,
     pub name: String,
     pub connection_type: ConnectionType,
-    pub fields: Vec<FieldSpec>,
-    pub config: String,
-    pub description: String,
-    pub format: Option<Format>,
-    pub event_time_field: Option<String>,
-    pub watermark_field: Option<String>,
-    pub idle_time: Option<Duration>,
-    pub primary_keys: Arc<Vec<String>>,
-    pub inferred_fields: Option<Vec<FieldRef>>,
-    pub partition_fields: Arc<Option<Vec<String>>>,
-
-    // for lookup tables
-    pub lookup_cache_max_bytes: Option<u64>,
-    pub lookup_cache_ttl: Option<Duration>,
+    pub fields: Vec<SourceField>,
+    pub partition_fields: Option<Vec<String>>,
 }
 
 multifield_partial_ord!(
     ConnectorTable,
-    id,
-    connector,
+    connection_id,
     name,
     connection_type,
-    config,
-    description,
-    format,
-    event_time_field,
-    watermark_field,
-    idle_time,
-    primary_keys
+    fields,
+    partition_fields
 );
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -193,6 +184,7 @@ fn produce_optimized_plan(
     Ok(plan)
 }
 
+#[cfg(feature = "operator")]
 impl From<Connection> for ConnectorTable {
     fn from(value: Connection) -> Self {
         ConnectorTable {
@@ -221,6 +213,19 @@ impl From<Connection> for ConnectorTable {
     }
 }
 
+#[cfg(not(feature = "operator"))]
+impl From<Connection> for ConnectorTable {
+    fn from(value: Connection) -> Self {
+        ConnectorTable {
+            connection_id: value.id,
+            name: value.name.clone(),
+            connection_type: value.connection_type,
+            fields: value.schema.fields.clone(),
+            partition_fields: value.partition_fields,
+        }
+    }
+}
+
 fn to_debezium_fields(fields: Vec<FieldRef>) -> Vec<Field> {
     let df_struct_type = DataType::Struct(fields.iter().cloned().collect());
     let before_field_spec = Field::new("before", df_struct_type.clone(), true);
@@ -229,6 +234,7 @@ fn to_debezium_fields(fields: Vec<FieldRef>) -> Vec<Field> {
     vec![before_field_spec, after_field_spec, op_field_spec]
 }
 
+#[cfg(feature = "operator")]
 impl ConnectorTable {
     #[allow(clippy::too_many_arguments)]
     fn from_options(
@@ -972,7 +978,7 @@ impl Table {
 
     pub fn partition_fields(&self) -> Option<&Vec<String>> {
         match self {
-            Table::ConnectorTable(c) => (*c.partition_fields).as_ref(),
+            Table::ConnectorTable(c) => c.partition_fields.as_ref(),
             _ => None,
         }
     }

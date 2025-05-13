@@ -1,3 +1,13 @@
+#!/bin/bash
+
+# 创建临时目录
+mkdir -p temp_build
+
+# 复制 arroyo-planner 的 Cargo.toml 文件
+cp crates/arroyo-planner/Cargo.toml temp_build/Cargo.toml.bak
+
+# 修改 Cargo.toml 文件，移除 arroyo-operator 依赖
+cat > crates/arroyo-planner/Cargo.toml << EOF
 [package]
 name = "arroyo-planner"
 version = "0.15.0-dev"
@@ -53,3 +63,13 @@ rstest = { version = "0.25" }
 
 [build-dependencies]
 glob = "0.3.1"
+EOF
+
+# 尝试构建
+cargo build -p arroyo-planner --lib --no-default-features --features="planner,no-operator"
+
+# 恢复原始的 Cargo.toml 文件
+mv temp_build/Cargo.toml.bak crates/arroyo-planner/Cargo.toml
+
+# 清理临时目录
+rm -rf temp_build

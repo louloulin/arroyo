@@ -5,7 +5,8 @@ edition = "2021"
 
 
 [features]
-default = []
+default = ["operator"]
+operator = ["arroyo-operator"]
 planner = []
 standalone = []
 no-operator = []
@@ -15,6 +16,7 @@ arroyo-types = { path = "../arroyo-types" }
 arroyo-rpc = {path = "../arroyo-rpc"}
 arroyo-datastream = { path = "../arroyo-datastream" }
 arroyo-connectors = { path = "../arroyo-connectors" }
+arroyo-operator = { path = "../arroyo-operator", optional = true }
 arroyo-udf-host = { path = "../arroyo-udf/arroyo-udf-host" }
 arroyo-udf-python = { path = "../arroyo-udf/arroyo-udf-python" }
 

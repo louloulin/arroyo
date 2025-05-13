@@ -104,7 +104,8 @@ pub struct MatchingState {
 }
 
 /// CEP 操作符配置
-#[derive(Debug, Clone, Message)]
+#[derive(Clone)]
+#[derive(::prost::Message)]
 pub struct CepOperatorConfig {
     /// 模式定义 JSON 字符串
     #[prost(string, tag = "1")]

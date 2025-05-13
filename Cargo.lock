@@ -766,7 +766,6 @@ dependencies = [
  "arrow-schema",
  "arroyo-connectors",
  "arroyo-datastream",
- "arroyo-operator",
  "arroyo-rpc",
  "arroyo-types",
  "arroyo-udf-host",
