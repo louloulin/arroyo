@@ -39,6 +39,13 @@ impl MockStorageProvider {
         Ok(())
     }
 
+    /// 如果存在则删除数据
+    pub async fn delete_if_present(&self, path: &str) -> Result<()> {
+        let mut store = self.data.write().await;
+        store.remove(path);
+        Ok(())
+    }
+
     /// 检查路径是否存在
     pub async fn exists(&self, path: &str) -> Result<bool> {
         let store = self.data.read().await;

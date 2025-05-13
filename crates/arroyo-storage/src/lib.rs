@@ -26,6 +26,7 @@ use tracing::{debug, error};
 
 mod aws;
 pub mod log_segment;
+pub mod optimized_log_segment;
 
 #[cfg(test)]
 pub mod tests {
@@ -728,7 +729,7 @@ impl StorageProvider {
 }
 
 #[cfg(test)]
-mod tests {
+mod lib_tests {
     use arroyo_types::to_nanos;
     use object_store::path::Path;
     use std::time::SystemTime;
