@@ -44,6 +44,28 @@ pub trait WindowOperator<W: Window>: ArrowOperator {
 
     /// 清除窗口
     async fn clear_window(&mut self, window: &W, ctx: &mut OperatorContext) -> Result<()>;
+
+    /// 合并会话窗口
+    async fn merge_session_windows(
+        &mut self,
+        new_window: &W,
+        batch: &RecordBatch,
+        timestamp: SystemTime,
+        ctx: &mut OperatorContext,
+        collector: &mut dyn Collector,
+    ) {
+        // 默认实现，不执行任何操作
+    }
+
+    /// 检查两个会话窗口是否可以合并
+    fn can_merge_sessions(
+        &self,
+        session1: &super::window_assigner::SessionWindow,
+        session2: &super::window_assigner::SessionWindow,
+    ) -> bool {
+        // 默认实现，返回 false
+        false
+    }
 }
 
 /// 通用窗口操作符实现
@@ -91,6 +113,11 @@ impl<W: Window + Eq + std::hash::Hash + Clone, A: WindowAssigner<WindowT = W>, T
         }
     }
 
+    /// 获取当前所有窗口
+    pub fn get_windows(&self) -> Vec<W> {
+        self.active_windows.keys().cloned().collect()
+    }
+
     /// 注册处理时间计时器
     fn register_processing_timer(&mut self, timestamp: SystemTime, window: W) {
         self.processing_timers
@@ -108,7 +135,7 @@ impl<W: Window + Eq + std::hash::Hash + Clone, A: WindowAssigner<WindowT = W>, T
     }
 
     /// 处理处理时间计时器
-    async fn process_processing_timers(
+    pub async fn process_processing_timers(
         &mut self,
         current_time: SystemTime,
         ctx: &mut OperatorContext,
@@ -253,21 +280,28 @@ impl<W: Window + Eq + std::hash::Hash + Clone + 'static, A: WindowAssigner<Windo
             let windows = self.window_assigner.assign_windows(&batch, timestamp);
 
             for window in windows {
-                // 将元素添加到窗口
-                self.active_windows
-                    .entry(window.clone())
-                    .or_insert_with(Vec::new)
-                    .push(batch.clone());
+                // 对于会话窗口，尝试合并窗口
+                if let Some(_) = window.as_any().downcast_ref::<super::window_assigner::SessionWindow>() {
+                    self.merge_session_windows(&window, &batch, timestamp, ctx, collector).await;
+                } else {
+                    // 对于其他类型的窗口，直接添加到活动窗口
+                    self.active_windows
+                        .entry(window.clone())
+                        .or_insert_with(Vec::new)
+                        .push(batch.clone());
 
-                // 检查是否应该触发窗口
-                if self.trigger.on_element(&batch, &window, timestamp) {
-                    if let Err(e) = self.trigger_window(&window, ctx, collector).await {
-                        info!("Error triggering window: {:?}", e);
+                    // 检查是否应该触发窗口
+                    if self.trigger.on_element(&batch, &window, timestamp) {
+                        if let Err(e) = self.trigger_window(&window, ctx, collector).await {
+                            info!("Error triggering window: {:?}", e);
+                        }
                     }
                 }
             }
         }
     }
+
+
 
     async fn handle_watermark(
         &mut self,
@@ -368,5 +402,123 @@ impl<W: Window + Eq + std::hash::Hash + Clone + 'static, A: WindowAssigner<Windo
         self.active_windows.remove(window);
 
         Ok(())
+    }
+
+    /// 合并会话窗口
+    async fn merge_session_windows(
+        &mut self,
+        new_window: &W,
+        batch: &RecordBatch,
+        timestamp: SystemTime,
+        ctx: &mut OperatorContext,
+        collector: &mut dyn Collector,
+    ) {
+        // 尝试将新窗口转换为会话窗口
+        if let Some(session_window) = new_window.as_any().downcast_ref::<super::window_assigner::SessionWindow>() {
+            let mut merged = false;
+            let mut windows_to_merge = Vec::new();
+
+            // 查找可以合并的窗口
+            for (existing_window, _) in self.active_windows.iter() {
+                if let Some(existing_session) = existing_window.as_any().downcast_ref::<super::window_assigner::SessionWindow>() {
+                    // 检查两个会话窗口是否可以合并
+                    if self.can_merge_sessions(existing_session, session_window) {
+                        windows_to_merge.push(existing_window.clone());
+                    }
+                }
+            }
+
+            if !windows_to_merge.is_empty() {
+                // 创建一个新的合并窗口
+                let mut merged_start = session_window.start();
+                let mut merged_end = session_window.end();
+                let mut merged_batches = Vec::new();
+
+                // 收集所有要合并的窗口的数据
+                for window_to_merge in &windows_to_merge {
+                    if let Some(batches) = self.active_windows.get(window_to_merge) {
+                        merged_batches.extend(batches.clone());
+                    }
+
+                    if let Some(existing_session) = window_to_merge.as_any().downcast_ref::<super::window_assigner::SessionWindow>() {
+                        if existing_session.start() < merged_start {
+                            merged_start = existing_session.start();
+                        }
+                        if existing_session.end() > merged_end {
+                            merged_end = existing_session.end();
+                        }
+                    }
+                }
+
+                // 添加新批次
+                merged_batches.push(batch.clone());
+
+                // 创建新的合并窗口
+                let merged_window = super::window_assigner::SessionWindow {
+                    start: merged_start,
+                    end: merged_end,
+                    gap: session_window.gap,
+                    max_lateness: session_window.max_lateness,
+                };
+
+                // 移除旧窗口
+                for window_to_merge in windows_to_merge {
+                    self.active_windows.remove(&window_to_merge);
+                }
+
+                // 添加合并后的窗口
+                let merged_window_w = W::from_session_window(merged_window.clone());
+                self.active_windows.insert(merged_window_w.clone(), merged_batches);
+
+                // 检查是否应该触发窗口
+                if self.trigger.on_element(batch, &merged_window_w, timestamp) {
+                    if let Err(e) = self.trigger_window(&merged_window_w, ctx, collector).await {
+                        info!("Error triggering merged window: {:?}", e);
+                    }
+                }
+
+                merged = true;
+            }
+
+            if !merged {
+                // 如果没有合并，则添加为新窗口
+                self.active_windows
+                    .entry(new_window.clone())
+                    .or_insert_with(Vec::new)
+                    .push(batch.clone());
+
+                // 检查是否应该触发窗口
+                if self.trigger.on_element(batch, new_window, timestamp) {
+                    if let Err(e) = self.trigger_window(new_window, ctx, collector).await {
+                        info!("Error triggering window: {:?}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    /// 检查两个会话窗口是否可以合并
+    fn can_merge_sessions(
+        &self,
+        session1: &super::window_assigner::SessionWindow,
+        session2: &super::window_assigner::SessionWindow,
+    ) -> bool {
+        // 如果两个会话的时间范围有重叠或者间隔小于会话间隔，则可以合并
+        let max_start = if session1.start > session2.start { session1.start } else { session2.start };
+        let min_end = if session1.end < session2.end { session1.end } else { session2.end };
+
+        // 检查是否有重叠
+        if max_start <= min_end {
+            return true;
+        }
+
+        // 检查间隔是否小于会话间隔
+        let gap = if max_start > min_end {
+            max_start.duration_since(min_end).unwrap_or(Duration::from_secs(0))
+        } else {
+            min_end.duration_since(max_start).unwrap_or(Duration::from_secs(0))
+        };
+
+        gap <= session1.gap
     }
 }

@@ -25,6 +25,14 @@ pub trait Window: Debug + Send + Sync + 'static {
             Watermark::Idle => false,
         }
     }
+
+    /// 将窗口转换为 Any 类型，用于类型转换
+    fn as_any(&self) -> &dyn std::any::Any;
+
+    /// 从会话窗口创建窗口
+    fn from_session_window(session_window: SessionWindow) -> Self where Self: Sized {
+        panic!("Not implemented for this window type")
+    }
 }
 
 /// 滚动窗口实现
@@ -49,6 +57,10 @@ impl Window for TumblingWindow {
 
     fn max_lateness(&self) -> Duration {
         self.max_lateness
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -77,10 +89,14 @@ impl Window for SlidingWindow {
     fn max_lateness(&self) -> Duration {
         self.max_lateness
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 /// 会话窗口实现
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SessionWindow {
     /// 窗口开始时间
     pub start: SystemTime,
@@ -104,11 +120,34 @@ impl Window for SessionWindow {
     fn max_lateness(&self) -> Duration {
         self.max_lateness
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn from_session_window(session_window: SessionWindow) -> Self {
+        session_window
+    }
 }
 
 /// 全局窗口实现
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GlobalWindow {
+    /// 最大允许延迟
+    pub max_lateness: Duration,
+}
+
+/// 动态窗口实现
+///
+/// 动态窗口允许根据数据特性动态调整窗口大小和边界
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DynamicWindow {
+    /// 窗口开始时间
+    pub start: SystemTime,
+    /// 窗口结束时间
+    pub end: SystemTime,
+    /// 窗口 ID，用于唯一标识动态创建的窗口
+    pub window_id: u64,
     /// 最大允许延迟
     pub max_lateness: Duration,
 }
@@ -121,12 +160,69 @@ impl Window for GlobalWindow {
 
     fn end(&self) -> SystemTime {
         // 全局窗口的结束时间是系统时间的最大值
-        // 这里使用一个非常远的未来时间
-        SystemTime::UNIX_EPOCH + Duration::from_secs(u64::MAX)
+        // 使用一个较远但安全的未来时间，避免溢出
+        SystemTime::UNIX_EPOCH + Duration::from_secs(60 * 60 * 24 * 365 * 100) // 100年
     }
 
     fn max_lateness(&self) -> Duration {
         self.max_lateness
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl Window for DynamicWindow {
+    fn start(&self) -> SystemTime {
+        self.start
+    }
+
+    fn end(&self) -> SystemTime {
+        self.end
+    }
+
+    fn max_lateness(&self) -> Duration {
+        self.max_lateness
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// 多维窗口实现
+///
+/// 多维窗口允许在多个维度上进行窗口划分和聚合，例如同时按时间和用户 ID 进行窗口划分
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MultiDimensionalWindow {
+    /// 窗口开始时间
+    pub start: SystemTime,
+    /// 窗口结束时间
+    pub end: SystemTime,
+    /// 窗口维度键，用于标识窗口的多个维度
+    pub dimension_keys: Vec<String>,
+    /// 窗口维度值，与维度键对应
+    pub dimension_values: Vec<String>,
+    /// 最大允许延迟
+    pub max_lateness: Duration,
+}
+
+impl Window for MultiDimensionalWindow {
+    fn start(&self) -> SystemTime {
+        self.start
+    }
+
+    fn end(&self) -> SystemTime {
+        self.end
+    }
+
+    fn max_lateness(&self) -> Duration {
+        self.max_lateness
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

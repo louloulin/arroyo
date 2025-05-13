@@ -52,6 +52,7 @@ pub mod window_assigner;
 pub mod window_operator;
 pub mod window_trigger;
 pub mod window_assigners;
+pub mod window_functions;
 
 pub struct ValueExecutionOperator {
     name: String,

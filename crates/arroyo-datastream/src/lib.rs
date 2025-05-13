@@ -59,6 +59,8 @@ pub enum WindowType {
     Session { gap: Duration },
     Count { size: usize },
     Global,
+    Dynamic,
+    MultiDimensional,
 }
 
 fn format_duration(duration: Duration) -> String {
@@ -104,6 +106,12 @@ impl Debug for WindowType {
             }
             Self::Global => {
                 write!(f, "GlobalWindow")
+            }
+            Self::Dynamic => {
+                write!(f, "DynamicWindow")
+            }
+            Self::MultiDimensional => {
+                write!(f, "MultiDimensionalWindow")
             }
         }
     }

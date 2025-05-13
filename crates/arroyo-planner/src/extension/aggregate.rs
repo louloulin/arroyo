@@ -338,6 +338,26 @@ impl AggregateExtension {
                     let width = Duration::from_secs(u64::MAX);
                     (window_field, window_index, width, is_nested)
                 }
+                WindowType::Dynamic => {
+                    // For dynamic windows, we'll use a session window
+                    return Ok(LogicalPlan::Extension(Extension {
+                        node: Arc::new(WindowAppendExtension::new(
+                            timestamp_append,
+                            window_field,
+                            window_index,
+                        )),
+                    }))
+                },
+                WindowType::MultiDimensional => {
+                    // For multi-dimensional windows, we'll use a session window
+                    return Ok(LogicalPlan::Extension(Extension {
+                        node: Arc::new(WindowAppendExtension::new(
+                            timestamp_append,
+                            window_field,
+                            window_index,
+                        )),
+                    }))
+                }
             },
         };
         if is_nested {
@@ -543,6 +563,14 @@ impl ArroyoExtension for AggregateExtension {
                         },
                         WindowType::Global => {
                             // For global windows, we'll use a session window with a very large gap
+                            self.session_window_config(planner, index, input_df_schema)?
+                        },
+                        WindowType::Dynamic => {
+                            // For dynamic windows, we'll use a session window with a default configuration
+                            self.session_window_config(planner, index, input_df_schema)?
+                        },
+                        WindowType::MultiDimensional => {
+                            // For multi-dimensional windows, we'll use a session window with a default configuration
                             self.session_window_config(planner, index, input_df_schema)?
                         }
                     }
