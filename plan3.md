@@ -875,6 +875,7 @@ Arroyo 当前架构主要包括以下组件：
 - [ ] 增强操作符实现
   - [x] 优化现有操作符性能（Map、Filter、Join 等）
   - [x] 优化 Map 操作符 - 已实现 `OptimizedMapOperator` 类，支持高效的批处理和缓存
+  - [x] 优化 Filter 操作符 - 已实现 `OptimizedFilterOperator` 类，支持高效的批处理和缓存
   - [ ] 扩展 `arroyo-operator` 模块，支持更多操作符
   - [ ] 添加复杂事件处理 (CEP) 操作符
   - [ ] 实现模式匹配和序列检测操作符

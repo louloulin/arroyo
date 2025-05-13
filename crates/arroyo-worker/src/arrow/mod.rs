@@ -54,6 +54,36 @@ pub mod window_trigger;
 pub mod window_assigners;
 pub mod window_functions;
 
+/// 计算批次的哈希值
+pub fn compute_batch_hash(batch: &RecordBatch) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+
+    // 对每一列进行哈希
+    for col in batch.columns() {
+        // 使用列的长度作为哈希输入
+        col.len().hash(&mut hasher);
+
+        // 使用列的数据类型作为哈希输入
+        format!("{:?}", col.data_type()).hash(&mut hasher);
+
+        // 对前 10 行数据进行采样哈希（避免全量哈希带来的性能开销）
+        let sample_size = std::cmp::min(10, col.len());
+        if sample_size > 0 {
+            // 使用列的内存布局的哈希值
+            col.as_ref().get_array_memory_size().hash(&mut hasher);
+        }
+    }
+
+    // 使用行数和列数作为哈希输入
+    batch.num_rows().hash(&mut hasher);
+    batch.num_columns().hash(&mut hasher);
+
+    hasher.finish()
+}
+
 pub struct ValueExecutionOperator {
     name: String,
     executor: StatelessPhysicalExecutor,
