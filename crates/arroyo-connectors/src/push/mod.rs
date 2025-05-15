@@ -162,8 +162,8 @@ impl Connector for PushConnector {
             })?
         } else {
             PushConfig {
-                buffer_size: options.pull_opt_u64("buffer_size")?,
-                max_batch_size: options.pull_opt_u64("max_batch_size")?,
+                buffer_size: options.pull_opt_u64("buffer_size")?.map(|v| v as usize),
+                max_batch_size: options.pull_opt_u64("max_batch_size")?.map(|v| v as usize),
                 authentication: None,
             }
         };
@@ -194,7 +194,7 @@ impl Connector for PushConnector {
                 inferred: None,
                 primary_keys: Default::default(),
             }),
-            config: serde_json::to_string(&config).unwrap(),
+            config: serde_json::to_string(&config)?,
             description: format!("Push connector for topic: {}", table.topic),
             partition_fields: None,
         })

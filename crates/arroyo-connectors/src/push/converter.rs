@@ -38,7 +38,7 @@ impl PushMessageConverter {
             let arrow_field = Self::source_field_to_arrow_field(field)?;
 
             // Check if this is a timestamp field
-            if arrow_field.data_type().is_timestamp() {
+            if matches!(arrow_field.data_type(), DataType::Timestamp(_, _)) {
                 timestamp_field_index = Some(i);
             }
 
@@ -136,7 +136,6 @@ impl PushMessageConverter {
                                 return Err(UserError {
                                     name: "Unsupported data type".to_string(),
                                     details: format!("Unsupported list item type: {:?}", primitive_type),
-                                    temporary: false,
                                 });
                             }
                         }
@@ -145,7 +144,6 @@ impl PushMessageConverter {
                         return Err(UserError {
                             name: "Unsupported data type".to_string(),
                             details: "Nested list types are not supported".to_string(),
-                            temporary: false,
                         });
                     }
                 }

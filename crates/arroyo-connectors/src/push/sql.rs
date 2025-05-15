@@ -46,9 +46,7 @@ fn parse_http_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Erro
 
     // Add HTTP config to options if any options were found
     if !http_config.is_empty() {
-        options.options.insert("http_config".to_string(), datafusion::sql::sqlparser::ast::Expr::Value(
-            datafusion::sql::sqlparser::ast::Value::SingleQuotedString(serde_json::to_string(&http_config)?)
-        ));
+        options.insert_str("http_config", &serde_json::to_string(&http_config)?);
     }
 
     Ok(())
@@ -71,9 +69,7 @@ fn parse_quic_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Erro
 
     // Add QUIC config to options if any options were found
     if !quic_config.is_empty() {
-        options.options.insert("quic_config".to_string(), datafusion::sql::sqlparser::ast::Expr::Value(
-            datafusion::sql::sqlparser::ast::Value::SingleQuotedString(serde_json::to_string(&quic_config)?)
-        ));
+        options.insert_str("quic_config", &serde_json::to_string(&quic_config)?);
     }
 
     Ok(())
@@ -96,9 +92,7 @@ fn parse_grpc_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Erro
 
     // Add gRPC config to options if any options were found
     if !grpc_config.is_empty() {
-        options.options.insert("grpc_config".to_string(), datafusion::sql::sqlparser::ast::Expr::Value(
-            datafusion::sql::sqlparser::ast::Value::SingleQuotedString(serde_json::to_string(&grpc_config)?)
-        ));
+        options.insert_str("grpc_config", &serde_json::to_string(&grpc_config)?);
     }
 
     Ok(())
@@ -121,16 +115,14 @@ fn parse_websocket_options(options: &mut ConnectorOptions) -> Result<(), anyhow:
 
     // Add WebSocket config to options if any options were found
     if !websocket_config.is_empty() {
-        options.options.insert("websocket_config".to_string(), datafusion::sql::sqlparser::ast::Expr::Value(
-            datafusion::sql::sqlparser::ast::Value::SingleQuotedString(serde_json::to_string(&websocket_config)?)
-        ));
+        options.set_str("websocket_config", &serde_json::to_string(&websocket_config)?);
     }
 
     Ok(())
 }
 
 /// Validate protocol options
-pub fn validate_protocol_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Error> {
+pub fn validate_protocol_options(options: &ConnectorOptions) -> Result<(), anyhow::Error> {
     // Get protocol
     let protocol = match options.pull_opt_str("protocol").map_err(|e| anyhow::anyhow!("{}", e))? {
         Some(s) => s,

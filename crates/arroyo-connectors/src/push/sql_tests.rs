@@ -106,26 +106,22 @@ mod tests {
     fn test_parse_multiple_protocol_options() -> Result<(), anyhow::Error> {
         // Create options with multiple protocol options
         let mut options = ConnectorOptions::new();
-        options.options.insert("protocol".to_string(), Expr::Value(Value::SingleQuotedString("quic".to_string())));
-        options.options.insert("topic".to_string(), Expr::Value(Value::SingleQuotedString("test_topic".to_string())));
-        options.options.insert("quic.max_concurrent_streams".to_string(), Expr::Value(Value::SingleQuotedString("200".to_string())));
-        options.options.insert("quic.idle_timeout".to_string(), Expr::Value(Value::SingleQuotedString("60".to_string())));
+        options.set_str("protocol", "quic");
+        options.set_str("topic", "test_topic");
+        options.set_str("quic.max_concurrent_streams", "200");
+        options.set_str("quic.idle_timeout", "60");
 
         // Parse protocol options
         sql::parse_protocol_options(&mut options)?;
 
         // Check that QUIC config was extracted
-        assert!(options.options.contains_key("quic_config"));
+        assert!(options.contains_key("quic_config"));
 
         // Check QUIC config values
-        let quic_config_expr = options.options.get("quic_config").unwrap();
-        if let Expr::Value(Value::SingleQuotedString(s)) = quic_config_expr {
-            let quic_config: HashMap<String, String> = serde_json::from_str(s)?;
-            assert_eq!(quic_config.get("max_concurrent_streams"), Some(&"200".to_string()));
-            assert_eq!(quic_config.get("idle_timeout"), Some(&"60".to_string()));
-        } else {
-            panic!("Expected quic_config to be a string value");
-        }
+        let quic_config_str = options.get_str("quic_config").unwrap();
+        let quic_config: HashMap<String, String> = serde_json::from_str(&quic_config_str)?;
+        assert_eq!(quic_config.get("max_concurrent_streams"), Some(&"200".to_string()));
+        assert_eq!(quic_config.get("idle_timeout"), Some(&"60".to_string()));
 
         Ok(())
     }
@@ -134,23 +130,23 @@ mod tests {
     fn test_validate_protocol_options() -> Result<(), anyhow::Error> {
         // Create valid options
         let mut options = ConnectorOptions::new();
-        options.options.insert("protocol".to_string(), Expr::Value(Value::SingleQuotedString("http".to_string())));
-        options.options.insert("topic".to_string(), Expr::Value(Value::SingleQuotedString("test_topic".to_string())));
+        options.set_str("protocol", "http");
+        options.set_str("topic", "test_topic");
 
         // Validate options
         assert!(sql::validate_protocol_options(&options).is_ok());
 
         // Create invalid options (missing topic)
         let mut invalid_options = ConnectorOptions::new();
-        invalid_options.options.insert("protocol".to_string(), Expr::Value(Value::SingleQuotedString("http".to_string())));
+        invalid_options.set_str("protocol", "http");
 
         // Validate options
         assert!(sql::validate_protocol_options(&invalid_options).is_err());
 
         // Create invalid options (invalid protocol)
         let mut invalid_protocol = ConnectorOptions::new();
-        invalid_protocol.options.insert("protocol".to_string(), Expr::Value(Value::SingleQuotedString("invalid".to_string())));
-        invalid_protocol.options.insert("topic".to_string(), Expr::Value(Value::SingleQuotedString("test_topic".to_string())));
+        invalid_protocol.set_str("protocol", "invalid");
+        invalid_protocol.set_str("topic", "test_topic");
 
         // Validate options
         assert!(sql::validate_protocol_options(&invalid_protocol).is_err());

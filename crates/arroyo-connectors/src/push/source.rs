@@ -66,8 +66,8 @@ impl PushSourceFunc {
         table: PushTable,
         operator_config: OperatorConfig,
     ) -> Result<ConstructedOperator> {
-        let buffer_size = config.buffer_size.unwrap_or_else(|| 10 * 1024 * 1024);
-        let max_batch_size = config.max_batch_size.unwrap_or_else(|| 1000);
+        let buffer_size = config.buffer_size.unwrap_or(10 * 1024 * 1024);
+        let max_batch_size = config.max_batch_size.unwrap_or(1000);
 
         // Create a channel for receiving messages
         let (tx, rx) = mpsc::channel(buffer_size);
@@ -124,9 +124,9 @@ impl PushSourceFunc {
         Ok(ConstructedOperator::from_source(Box::new(PushSourceFunc {
             topic: table.topic,
             protocol: table.protocol,
-            format: operator_config.format.expect("Push connector requires a format"),
-            framing: operator_config.framing,
-            bad_data: operator_config.bad_data,
+            format: arroyo_rpc::formats::Format::Json(arroyo_rpc::formats::JsonFormat::default()),
+            framing: None,
+            bad_data: arroyo_rpc::formats::BadData::Fail {},
             buffer_size,
             max_batch_size,
             state: PushSourceState::default(),
@@ -293,9 +293,14 @@ impl PushSourceFunc {
                             s.insert((), self.state.clone());
 
                             // Acknowledge checkpoint
-                            ctx.control_tx.send(arroyo_rpc::ControlResp::CheckpointCompleted {
-                                subtask: ctx.task_info.task_index as usize,
-                            }).await.unwrap();
+                            ctx.control_tx.send(arroyo_rpc::ControlResp::CheckpointCompleted(
+                                arroyo_rpc::CheckpointCompleted {
+                                    checkpoint_epoch: 0,
+                                    node_id: ctx.task_info.node_index,
+                                    operator_id: ctx.task_info.operator_id,
+                                    subtask_metadata: None,
+                                }
+                            )).await.unwrap();
                         }
                         ControlMessage::LoadCompacted { compacted } => {
                             ctx.load_compacted(compacted).await;
@@ -328,14 +333,8 @@ impl PushSourceFunc {
                                     match converter.convert(&msg) {
                                         Ok(record_batch) => {
                                             // Collect record batch
-                                            match collector.collect(record_batch).await {
-                                                Ok(_) => {
-                                                    debug!("Successfully processed message for topic {}", self.topic);
-                                                }
-                                                Err(e) => {
-                                                    error!("Error collecting record batch: {:?}", e);
-                                                }
-                                            }
+                                            collector.collect(record_batch).await;
+                                            debug!("Successfully processed message for topic {}", self.topic);
                                         }
                                         Err(e) => {
                                             error!("Error converting message to Arrow format: {:?}", e);
@@ -343,14 +342,8 @@ impl PushSourceFunc {
                                     }
                                 } else {
                                     // Use default deserialization
-                                    match collector.collect_raw(msg.data.clone(), msg.timestamp).await {
-                                        Ok(_) => {
-                                            debug!("Successfully processed message for topic {}", self.topic);
-                                        }
-                                        Err(e) => {
-                                            error!("Error processing message: {:?}", e);
-                                        }
-                                    }
+                                    collector.collect_bytes(msg.data.clone(), msg.timestamp).await;
+                                    debug!("Successfully processed message for topic {}", self.topic);
                                 }
 
                                 // Release space in buffer
@@ -364,14 +357,8 @@ impl PushSourceFunc {
                             match converter.convert(&message) {
                                 Ok(record_batch) => {
                                     // Collect record batch
-                                    match collector.collect(record_batch).await {
-                                        Ok(_) => {
-                                            debug!("Successfully processed message for topic {}", self.topic);
-                                        }
-                                        Err(e) => {
-                                            error!("Error collecting record batch: {:?}", e);
-                                        }
-                                    }
+                                    collector.collect(record_batch).await;
+                                    debug!("Successfully processed message for topic {}", self.topic);
                                 }
                                 Err(e) => {
                                     error!("Error converting message to Arrow format: {:?}", e);
@@ -379,14 +366,8 @@ impl PushSourceFunc {
                             }
                         } else {
                             // Use default deserialization
-                            match collector.collect_raw(message.data.clone(), message.timestamp).await {
-                                Ok(_) => {
-                                    debug!("Successfully processed message for topic {}", self.topic);
-                                }
-                                Err(e) => {
-                                    error!("Error processing message: {:?}", e);
-                                }
-                            }
+                            collector.collect_bytes(message.data.clone(), message.timestamp).await;
+                            debug!("Successfully processed message for topic {}", self.topic);
                         }
 
                         // Release space in buffer
@@ -413,14 +394,8 @@ impl PushSourceFunc {
                                         match converter.convert(&msg) {
                                             Ok(record_batch) => {
                                                 // Collect record batch
-                                                match collector.collect(record_batch).await {
-                                                    Ok(_) => {
-                                                        debug!("Successfully processed message for topic {}", self.topic);
-                                                    }
-                                                    Err(e) => {
-                                                        error!("Error collecting record batch: {:?}", e);
-                                                    }
-                                                }
+                                                collector.collect(record_batch).await;
+                                                debug!("Successfully processed message for topic {}", self.topic);
                                             }
                                             Err(e) => {
                                                 error!("Error converting message to Arrow format: {:?}", e);
@@ -428,14 +403,8 @@ impl PushSourceFunc {
                                         }
                                     } else {
                                         // Use default deserialization
-                                        match collector.collect_raw(msg.data.clone(), msg.timestamp).await {
-                                            Ok(_) => {
-                                                debug!("Successfully processed message for topic {}", self.topic);
-                                            }
-                                            Err(e) => {
-                                                error!("Error processing message: {:?}", e);
-                                            }
-                                        }
+                                        collector.collect_bytes(msg.data.clone(), msg.timestamp).await;
+                                        debug!("Successfully processed message for topic {}", self.topic);
                                     }
 
                                     // Release space in buffer
