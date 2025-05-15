@@ -19,11 +19,15 @@ use tracing::{debug, error, info};
 
 use crate::push::source::PushMessage;
 use crate::push::topic::{CreateTopicRequest, TopicError};
+use crate::push::metrics::TopicMetricsManager;
+use crate::push::messages::{MessageStore, MessageQuery, MessageData};
 
 /// HTTP server state
 pub struct HttpServerState {
     pub message_tx: mpsc::Sender<PushMessage>,
     pub topic_manager: Arc<crate::push::topic::TopicManager>,
+    pub metrics_manager: Arc<crate::push::metrics::TopicMetricsManager>,
+    pub message_store: Arc<crate::push::messages::MessageStore>,
 }
 
 /// HTTP server configuration
@@ -75,6 +79,8 @@ impl HttpServer {
         let state = Arc::new(HttpServerState {
             message_tx,
             topic_manager: Arc::new(crate::push::topic::TopicManager::new()),
+            metrics_manager: Arc::new(crate::push::metrics::TopicMetricsManager::new()),
+            message_store: Arc::new(crate::push::messages::MessageStore::new(1000)), // Store up to 1000 messages per topic
         });
 
         // Create router with routes
@@ -87,6 +93,11 @@ impl HttpServer {
                 get(Self::handle_get_topic_info),
             )
             .route("/api/v1/push/topics/:topic", delete(Self::handle_delete_topic))
+            .route("/api/v1/push/metrics", get(Self::handle_get_metrics))
+            .route("/api/v1/push/metrics/:topic", get(Self::handle_get_topic_metrics))
+            .route("/api/v1/push/messages/:topic", get(Self::handle_query_messages))
+            .route("/api/v1/push/messages/:topic/:id", get(Self::handle_get_message))
+            .route("/api/v1/push/messages/:topic", delete(Self::handle_clear_messages))
             .route("/api/v1/health", get(Self::handle_health_check))
             .with_state(state);
 
@@ -149,6 +160,16 @@ impl HttpServer {
             } else {
                 error!("Failed to record message: {}", e);
             }
+        }
+
+        // Update metrics
+        if let Err(e) = state.metrics_manager.record_message(&topic, body.len()) {
+            error!("Failed to update metrics: {}", e);
+        }
+
+        // Store message for browsing
+        if let Err(e) = state.message_store.store_message(&topic, body.to_vec()) {
+            error!("Failed to store message: {}", e);
         }
 
         // Send message to channel
@@ -299,5 +320,175 @@ impl HttpServer {
                 "version": env!("CARGO_PKG_VERSION")
             })),
         )
+    }
+
+    /// Handle get metrics request
+    async fn handle_get_metrics(
+        State(state): State<Arc<HttpServerState>>,
+    ) -> impl IntoResponse {
+        // Get metrics for all topics
+        match state.metrics_manager.get_all_metrics() {
+            Ok(metrics) => {
+                let metrics_json = serde_json::to_value(metrics).unwrap_or(serde_json::json!([]));
+                (StatusCode::OK, Json(metrics_json))
+            },
+            Err(e) => {
+                error!("Failed to get metrics: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": format!("Failed to get metrics: {}", e)
+                    })),
+                )
+            }
+        }
+    }
+
+    /// Handle get topic metrics request
+    async fn handle_get_topic_metrics(
+        State(state): State<Arc<HttpServerState>>,
+        Path(topic): Path<String>,
+    ) -> impl IntoResponse {
+        // Get metrics for a specific topic
+        match state.metrics_manager.get_topic_metrics(&topic) {
+            Ok(Some(metrics)) => {
+                let metrics_json = serde_json::to_value(metrics).unwrap_or(serde_json::json!({}));
+                (StatusCode::OK, Json(metrics_json))
+            },
+            Ok(None) => {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({
+                        "error": format!("Topic not found: {}", topic)
+                    })),
+                )
+            },
+            Err(e) => {
+                error!("Failed to get topic metrics: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": format!("Failed to get topic metrics: {}", e)
+                    })),
+                )
+            }
+        }
+    }
+
+    /// Handle query messages request
+    async fn handle_query_messages(
+        State(state): State<Arc<HttpServerState>>,
+        Path(topic): Path<String>,
+        Query(params): Query<HashMap<String, String>>,
+    ) -> impl IntoResponse {
+        // Parse query parameters
+        let limit = params.get("limit")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(100);
+        let offset = params.get("offset")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0);
+        let start_time = params.get("start_time")
+            .and_then(|s| s.parse::<u64>().ok());
+        let end_time = params.get("end_time")
+            .and_then(|s| s.parse::<u64>().ok());
+
+        // Create query
+        let query = MessageQuery {
+            topic: topic.clone(),
+            limit,
+            offset,
+            start_time,
+            end_time,
+        };
+
+        // Query messages
+        match state.message_store.query_messages(&query) {
+            Ok(messages) => {
+                let messages_json = serde_json::to_value(messages).unwrap_or(serde_json::json!([]));
+                (StatusCode::OK, Json(messages_json))
+            },
+            Err(e) => {
+                error!("Failed to query messages: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": format!("Failed to query messages: {}", e)
+                    })),
+                )
+            }
+        }
+    }
+
+    /// Handle get message request
+    async fn handle_get_message(
+        State(state): State<Arc<HttpServerState>>,
+        Path((topic, id)): Path<(String, String)>,
+    ) -> impl IntoResponse {
+        // Parse message ID
+        let id = match id.parse::<u64>() {
+            Ok(id) => id,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": format!("Invalid message ID: {}", id)
+                    })),
+                );
+            }
+        };
+
+        // Get message
+        match state.message_store.get_message(&topic, id) {
+            Ok(Some(message)) => {
+                let message_json = serde_json::to_value(message).unwrap_or(serde_json::json!({}));
+                (StatusCode::OK, Json(message_json))
+            },
+            Ok(None) => {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({
+                        "error": format!("Message not found: {}", id)
+                    })),
+                )
+            },
+            Err(e) => {
+                error!("Failed to get message: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": format!("Failed to get message: {}", e)
+                    })),
+                )
+            }
+        }
+    }
+
+    /// Handle clear messages request
+    async fn handle_clear_messages(
+        State(state): State<Arc<HttpServerState>>,
+        Path(topic): Path<String>,
+    ) -> impl IntoResponse {
+        // Clear messages
+        match state.message_store.clear_messages(&topic) {
+            Ok(_) => {
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "success": true,
+                        "message": format!("Messages cleared for topic: {}", topic)
+                    })),
+                )
+            },
+            Err(e) => {
+                error!("Failed to clear messages: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": format!("Failed to clear messages: {}", e)
+                    })),
+                )
+            }
+        }
     }
 }

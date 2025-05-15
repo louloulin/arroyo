@@ -521,31 +521,20 @@ export const usePipeline = (pipelineId?: string, refresh: boolean = false) => {
 // Fetch push topics
 const pushTopicsFetcher = () => {
   return async (params: { key: string; connectionId: string }) => {
-    // This would be a real API call in production
-    // For now, we'll return mock data
-    const mockTopics: PushTopic[] = [
-      {
-        name: 'events',
-        messages: 1245,
-        created_at: Date.now() / 1000 - 86400 * 3,
-        last_activity: Date.now() / 1000 - 3600,
-        retention_period: 7 * 86400,
-        compression: true,
-      },
-      {
-        name: 'logs',
-        messages: 5678,
-        created_at: Date.now() / 1000 - 86400 * 5,
-        last_activity: Date.now() / 1000 - 1800,
-        retention_period: 14 * 86400,
-        compression: false,
-      },
-    ];
+    try {
+      // 使用 fetch 直接调用 API，因为这个 API 路径不在 OpenAPI 规范中
+      const response = await fetch(`/api/v1/push/topics?connectionId=${params.connectionId}`);
 
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 500));
+      if (!response.ok) {
+        throw new Error(`Failed to fetch push topics: ${response.statusText}`);
+      }
 
-    return mockTopics;
+      const data = await response.json();
+      return data as PushTopic[];
+    } catch (err) {
+      console.error('Failed to fetch push topics:', err);
+      throw err;
+    }
   };
 };
 
@@ -569,21 +558,20 @@ export const usePushTopics = (connectionId: string) => {
 // Fetch push topic details
 const pushTopicDetailsFetcher = () => {
   return async (params: { key: string; connectionId: string; topicName: string }) => {
-    // This would be a real API call in production
-    // For now, we'll return mock data
-    const mockTopic: PushTopic = {
-      name: params.topicName,
-      messages: params.topicName === 'events' ? 1245 : 5678,
-      created_at: Date.now() / 1000 - 86400 * 3,
-      last_activity: Date.now() / 1000 - 3600,
-      retention_period: 7 * 86400,
-      compression: true,
-    };
+    try {
+      // 使用 fetch 直接调用 API，因为这个 API 路径不在 OpenAPI 规范中
+      const response = await fetch(`/api/v1/push/topics/${params.topicName}`);
 
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 500));
+      if (!response.ok) {
+        throw new Error(`Failed to fetch topic details: ${response.statusText}`);
+      }
 
-    return mockTopic;
+      const data = await response.json();
+      return data as PushTopic;
+    } catch (err) {
+      console.error('Failed to fetch topic details:', err);
+      throw err;
+    }
   };
 };
 
@@ -612,28 +600,58 @@ export const createPushTopic = async (
     compression?: boolean;
   }
 ) => {
-  // This would be a real API call in production
-  // For now, we'll simulate success
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  try {
+    // 使用 fetch 直接调用 API，因为这个 API 路径不在 OpenAPI 规范中
+    const response = await fetch('/api/v1/push/topics', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: topicName,
+        retention_period: options?.retention_period || 7 * 24 * 60 * 60, // 默认 7 天
+        compression: options?.compression || false,
+      }),
+    });
 
-  // Mutate the topics cache to include the new topic
-  const key = pushTopicsKey(connectionId);
-  globalMutate(key);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to create topic: ${errorText}`);
+    }
 
-  return { success: true };
+    // 成功创建主题后，刷新主题列表
+    const key = pushTopicsKey(connectionId);
+    globalMutate(key);
+
+    return { success: true };
+  } catch (err) {
+    console.error('Failed to create topic:', err);
+    throw err;
+  }
 };
 
 // Delete push topic
 export const deletePushTopic = async (connectionId: string, topicName: string) => {
-  // This would be a real API call in production
-  // For now, we'll simulate success
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  try {
+    // 使用 fetch 直接调用 API，因为这个 API 路径不在 OpenAPI 规范中
+    const response = await fetch(`/api/v1/push/topics/${topicName}`, {
+      method: 'DELETE',
+    });
 
-  // Mutate the topics cache to remove the deleted topic
-  const key = pushTopicsKey(connectionId);
-  globalMutate(key);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to delete topic: ${errorText}`);
+    }
 
-  return { success: true };
+    // 成功删除主题后，刷新主题列表
+    const key = pushTopicsKey(connectionId);
+    globalMutate(key);
+
+    return { success: true };
+  } catch (err) {
+    console.error('Failed to delete topic:', err);
+    throw err;
+  }
 };
 
   const updatePipeline = async (params: { stop?: StopType; parallelism?: number }) => {

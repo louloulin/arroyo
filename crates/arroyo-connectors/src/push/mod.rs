@@ -12,12 +12,20 @@ pub mod batch;
 pub mod buffer;
 pub mod converter;
 pub mod http;
+pub mod messages;
+pub mod metrics;
 pub mod source;
 pub mod sql;
 pub mod topic;
 
 #[cfg(test)]
 mod topic_tests;
+
+#[cfg(test)]
+mod metrics_tests;
+
+#[cfg(test)]
+mod messages_tests;
 
 #[cfg(test)]
 mod tests;
