@@ -38,8 +38,9 @@ fn parse_http_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Erro
         if key.starts_with("http.") {
             let option_name = key.strip_prefix("http.").unwrap();
             if let Some(value) = options.pull_opt_str(&key)? {
+                let value_clone = value.clone();
                 http_config.insert(option_name.to_string(), value);
-                debug!("Found HTTP option: {} = {}", option_name, value);
+                debug!("Found HTTP option: {} = {}", option_name, value_clone);
             }
         }
     }
@@ -61,8 +62,9 @@ fn parse_quic_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Erro
         if key.starts_with("quic.") {
             let option_name = key.strip_prefix("quic.").unwrap();
             if let Some(value) = options.pull_opt_str(&key)? {
+                let value_clone = value.clone();
                 quic_config.insert(option_name.to_string(), value);
-                debug!("Found QUIC option: {} = {}", option_name, value);
+                debug!("Found QUIC option: {} = {}", option_name, value_clone);
             }
         }
     }
@@ -84,8 +86,9 @@ fn parse_grpc_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Erro
         if key.starts_with("grpc.") {
             let option_name = key.strip_prefix("grpc.").unwrap();
             if let Some(value) = options.pull_opt_str(&key)? {
+                let value_clone = value.clone();
                 grpc_config.insert(option_name.to_string(), value);
-                debug!("Found gRPC option: {} = {}", option_name, value);
+                debug!("Found gRPC option: {} = {}", option_name, value_clone);
             }
         }
     }
@@ -107,22 +110,23 @@ fn parse_websocket_options(options: &mut ConnectorOptions) -> Result<(), anyhow:
         if key.starts_with("ws.") {
             let option_name = key.strip_prefix("ws.").unwrap();
             if let Some(value) = options.pull_opt_str(&key)? {
+                let value_clone = value.clone();
                 websocket_config.insert(option_name.to_string(), value);
-                debug!("Found WebSocket option: {} = {}", option_name, value);
+                debug!("Found WebSocket option: {} = {}", option_name, value_clone);
             }
         }
     }
 
     // Add WebSocket config to options if any options were found
     if !websocket_config.is_empty() {
-        options.set_str("websocket_config", &serde_json::to_string(&websocket_config)?);
+        options.insert_str("websocket_config", &serde_json::to_string(&websocket_config)?);
     }
 
     Ok(())
 }
 
 /// Validate protocol options
-pub fn validate_protocol_options(options: &ConnectorOptions) -> Result<(), anyhow::Error> {
+pub fn validate_protocol_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Error> {
     // Get protocol
     let protocol = match options.pull_opt_str("protocol").map_err(|e| anyhow::anyhow!("{}", e))? {
         Some(s) => s,

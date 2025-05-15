@@ -98,11 +98,14 @@ impl Connector for PushConnector {
     }
 
     fn config_description(&self, config: Self::ProfileT) -> String {
-        format!("Push connector with buffer size: {}",
-                config.buffer_size.unwrap_or(10 * 1024 * 1024))
+        let buffer_size = match config.buffer_size {
+            Some(size) => size,
+            None => 10 * 1024 * 1024,
+        };
+        format!("Push connector with buffer size: {}", buffer_size)
     }
 
-    fn table_type(&self, _config: Self::ProfileT, table: Self::TableT) -> ConnectionType {
+    fn table_type(&self, _config: Self::ProfileT, _table: Self::TableT) -> ConnectionType {
         ConnectionType::Source
     }
 
@@ -162,8 +165,14 @@ impl Connector for PushConnector {
             })?
         } else {
             PushConfig {
-                buffer_size: options.pull_opt_u64("buffer_size")?.map(|v| v as usize),
-                max_batch_size: options.pull_opt_u64("max_batch_size")?.map(|v| v as usize),
+                buffer_size: match options.pull_opt_u64("buffer_size")? {
+                    Some(size) => Some(size as usize),
+                    None => None,
+                },
+                max_batch_size: match options.pull_opt_u64("max_batch_size")? {
+                    Some(size) => Some(size as usize),
+                    None => None,
+                },
                 authentication: None,
             }
         };

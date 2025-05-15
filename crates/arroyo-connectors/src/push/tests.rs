@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::push::{PushConnector, PushConfig, PushTable};
     use arroyo_operator::connector::Connector;
     use arroyo_rpc::api_types::connections::ConnectionType;
 

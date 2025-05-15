@@ -78,16 +78,16 @@ mod tests {
     fn test_parse_protocol_options() -> Result<(), anyhow::Error> {
         // Create options with HTTP-specific options
         let mut options = ConnectorOptions::new();
-        options.set_str("protocol", "http");
-        options.set_str("topic", "test_topic");
-        options.set_str("http.timeout", "60");
-        options.set_str("http.max_connections", "200");
+        options.insert_str("protocol", "http");
+        options.insert_str("topic", "test_topic");
+        options.insert_str("http.timeout", "60");
+        options.insert_str("http.max_connections", "200");
 
         // Parse protocol options
         sql::parse_protocol_options(&mut options)?;
 
         // Check that HTTP config was extracted
-        assert!(options.contains_key("http_config"));
+        assert!(options.has_key("http_config"));
 
         // Check HTTP config values
         let http_config_str = options.get_str("http_config").unwrap();
@@ -96,8 +96,8 @@ mod tests {
         assert_eq!(http_config.get("max_connections"), Some(&"200".to_string()));
 
         // Check that original options were removed
-        assert!(!options.contains_key("http.timeout"));
-        assert!(!options.contains_key("http.max_connections"));
+        assert!(!options.has_key("http.timeout"));
+        assert!(!options.has_key("http.max_connections"));
 
         Ok(())
     }
@@ -106,16 +106,16 @@ mod tests {
     fn test_parse_multiple_protocol_options() -> Result<(), anyhow::Error> {
         // Create options with multiple protocol options
         let mut options = ConnectorOptions::new();
-        options.set_str("protocol", "quic");
-        options.set_str("topic", "test_topic");
-        options.set_str("quic.max_concurrent_streams", "200");
-        options.set_str("quic.idle_timeout", "60");
+        options.insert_str("protocol", "quic");
+        options.insert_str("topic", "test_topic");
+        options.insert_str("quic.max_concurrent_streams", "200");
+        options.insert_str("quic.idle_timeout", "60");
 
         // Parse protocol options
         sql::parse_protocol_options(&mut options)?;
 
         // Check that QUIC config was extracted
-        assert!(options.contains_key("quic_config"));
+        assert!(options.has_key("quic_config"));
 
         // Check QUIC config values
         let quic_config_str = options.get_str("quic_config").unwrap();
@@ -130,23 +130,23 @@ mod tests {
     fn test_validate_protocol_options() -> Result<(), anyhow::Error> {
         // Create valid options
         let mut options = ConnectorOptions::new();
-        options.set_str("protocol", "http");
-        options.set_str("topic", "test_topic");
+        options.insert_str("protocol", "http");
+        options.insert_str("topic", "test_topic");
 
         // Validate options
         assert!(sql::validate_protocol_options(&options).is_ok());
 
         // Create invalid options (missing topic)
         let mut invalid_options = ConnectorOptions::new();
-        invalid_options.set_str("protocol", "http");
+        invalid_options.insert_str("protocol", "http");
 
         // Validate options
         assert!(sql::validate_protocol_options(&invalid_options).is_err());
 
         // Create invalid options (invalid protocol)
         let mut invalid_protocol = ConnectorOptions::new();
-        invalid_protocol.set_str("protocol", "invalid");
-        invalid_protocol.set_str("topic", "test_topic");
+        invalid_protocol.insert_str("protocol", "invalid");
+        invalid_protocol.insert_str("topic", "test_topic");
 
         // Validate options
         assert!(sql::validate_protocol_options(&invalid_protocol).is_err());

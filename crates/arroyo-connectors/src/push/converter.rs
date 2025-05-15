@@ -88,17 +88,17 @@ impl PushMessageConverter {
                     arroyo_rpc::api_types::connections::PrimitiveType::String => DataType::Utf8,
                     arroyo_rpc::api_types::connections::PrimitiveType::Int32 => DataType::Int32,
                     arroyo_rpc::api_types::connections::PrimitiveType::Int64 => DataType::Int64,
-                    arroyo_rpc::api_types::connections::PrimitiveType::Float32 => DataType::Float32,
-                    arroyo_rpc::api_types::connections::PrimitiveType::Float64 => DataType::Float64,
-                    arroyo_rpc::api_types::connections::PrimitiveType::Boolean => DataType::Boolean,
+                    arroyo_rpc::api_types::connections::PrimitiveType::F32 => DataType::Float32,
+                    arroyo_rpc::api_types::connections::PrimitiveType::F64 => DataType::Float64,
+                    arroyo_rpc::api_types::connections::PrimitiveType::Bool => DataType::Boolean,
                     arroyo_rpc::api_types::connections::PrimitiveType::Bytes => DataType::Binary,
-                    arroyo_rpc::api_types::connections::PrimitiveType::Date => DataType::Date32,
-                    arroyo_rpc::api_types::connections::PrimitiveType::Time => DataType::Time64(TimeUnit::Microsecond),
-                    arroyo_rpc::api_types::connections::PrimitiveType::Timestamp => {
-                        DataType::Timestamp(TimeUnit::Microsecond, None)
-                    }
+                    arroyo_rpc::api_types::connections::PrimitiveType::UnixMillis => DataType::Timestamp(TimeUnit::Millisecond, None),
+                    arroyo_rpc::api_types::connections::PrimitiveType::UnixMicros => DataType::Timestamp(TimeUnit::Microsecond, None),
+                    arroyo_rpc::api_types::connections::PrimitiveType::UnixNanos => DataType::Timestamp(TimeUnit::Nanosecond, None),
+                    arroyo_rpc::api_types::connections::PrimitiveType::DateTime => DataType::Timestamp(TimeUnit::Microsecond, None),
                     arroyo_rpc::api_types::connections::PrimitiveType::UInt32 => DataType::UInt32,
                     arroyo_rpc::api_types::connections::PrimitiveType::UInt64 => DataType::UInt64,
+                    arroyo_rpc::api_types::connections::PrimitiveType::Json => DataType::Utf8,
                     _ => {
                         return Err(UserError {
                             name: "Unsupported data type".to_string(),
@@ -108,50 +108,15 @@ impl PushMessageConverter {
                 }
             }
             arroyo_rpc::api_types::connections::FieldType::List(item_type) => {
-                match &**item_type {
-                    arroyo_rpc::api_types::connections::FieldType::Primitive(primitive_type) => {
-                        match primitive_type {
-                            arroyo_rpc::api_types::connections::PrimitiveType::String => {
-                                DataType::List(Arc::new(Field::new("item", DataType::Utf8, true)))
-                            }
-                            arroyo_rpc::api_types::connections::PrimitiveType::Int32 => {
-                                DataType::List(Arc::new(Field::new("item", DataType::Int32, true)))
-                            }
-                            arroyo_rpc::api_types::connections::PrimitiveType::Int64 => {
-                                DataType::List(Arc::new(Field::new("item", DataType::Int64, true)))
-                            }
-                            arroyo_rpc::api_types::connections::PrimitiveType::Float32 => {
-                                DataType::List(Arc::new(Field::new("item", DataType::Float32, true)))
-                            }
-                            arroyo_rpc::api_types::connections::PrimitiveType::Float64 => {
-                                DataType::List(Arc::new(Field::new("item", DataType::Float64, true)))
-                            }
-                            arroyo_rpc::api_types::connections::PrimitiveType::Boolean => {
-                                DataType::List(Arc::new(Field::new("item", DataType::Boolean, true)))
-                            }
-                            arroyo_rpc::api_types::connections::PrimitiveType::Bytes => {
-                                DataType::List(Arc::new(Field::new("item", DataType::Binary, true)))
-                            }
-                            _ => {
-                                return Err(UserError {
-                                    name: "Unsupported data type".to_string(),
-                                    details: format!("Unsupported list item type: {:?}", primitive_type),
-                                });
-                            }
-                        }
-                    }
-                    _ => {
-                        return Err(UserError {
-                            name: "Unsupported data type".to_string(),
-                            details: "Nested list types are not supported".to_string(),
-                        });
-                    }
-                }
+                // Convert the item field to an Arrow field
+                let item_field = Self::source_field_to_arrow_field(item_type)?;
+                // Create a list data type with the item field
+                DataType::List(Arc::new(item_field))
             }
-            _ => {
+            arroyo_rpc::api_types::connections::FieldType::Struct(_) => {
                 return Err(UserError {
                     name: "Unsupported data type".to_string(),
-                    details: format!("Unsupported field type: {:?}", field.field_type.r#type),
+                    details: "Struct types are not supported yet".to_string(),
                 });
             }
         };
@@ -207,14 +172,14 @@ impl PushMessageConverter {
     }
 
     /// Parse message data based on format
-    fn parse_message_data(&self, message: &PushMessage) -> Result<HashMap<String, ArrayRef>, UserError> {
+    fn parse_message_data(&self, _message: &PushMessage) -> Result<HashMap<String, ArrayRef>, UserError> {
         // TODO: Implement parsing based on format (JSON, Avro, Protobuf, etc.)
         // For now, just return an empty map
         Ok(HashMap::new())
     }
 
     /// Create a null array of the specified type
-    fn create_null_array(data_type: &DataType, length: usize) -> Result<ArrayRef, UserError> {
+    fn create_null_array(_data_type: &DataType, length: usize) -> Result<ArrayRef, UserError> {
         // TODO: Implement null array creation for all supported types
         // For now, just return a null string array
         Ok(Arc::new(StringArray::from(vec![None as Option<&str>; length])))

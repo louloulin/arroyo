@@ -164,7 +164,7 @@ impl HttpServer {
     /// Handle create topic request
     async fn handle_create_topic(
         State(_state): State<Arc<HttpServerState>>,
-        Json(payload): Json<serde_json::Value>,
+        Json(_payload): Json<serde_json::Value>,
     ) -> impl IntoResponse {
         // TODO: Implement create topic functionality
         (

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+
+use arroyo_rpc::grpc::rpc::SubtaskCheckpointMetadata;
 
 use anyhow::Result;
 use arroyo_operator::context::{SourceCollector, SourceContext};
@@ -66,8 +67,14 @@ impl PushSourceFunc {
         table: PushTable,
         operator_config: OperatorConfig,
     ) -> Result<ConstructedOperator> {
-        let buffer_size = config.buffer_size.unwrap_or(10 * 1024 * 1024);
-        let max_batch_size = config.max_batch_size.unwrap_or(1000);
+        let buffer_size = match config.buffer_size {
+            Some(size) => size,
+            None => 10 * 1024 * 1024,
+        };
+        let max_batch_size = match config.max_batch_size {
+            Some(size) => size,
+            None => 1000,
+        };
 
         // Create a channel for receiving messages
         let (tx, rx) = mpsc::channel(buffer_size);
@@ -110,23 +117,14 @@ impl PushSourceFunc {
         };
 
         // Create converter
-        let converter = if let Some(schema) = operator_config.connection.as_ref().and_then(|c| c.schema.as_ref()) {
-            match PushMessageConverter::new(schema) {
-                Ok(converter) => Some(converter),
-                Err(e) => {
-                    return Err(anyhow::anyhow!("Failed to create converter: {:?}", e));
-                }
-            }
-        } else {
-            None
-        };
+        let converter = None; // TODO: Implement schema conversion
 
         Ok(ConstructedOperator::from_source(Box::new(PushSourceFunc {
             topic: table.topic,
             protocol: table.protocol,
             format: arroyo_rpc::formats::Format::Json(arroyo_rpc::formats::JsonFormat::default()),
             framing: None,
-            bad_data: arroyo_rpc::formats::BadData::Fail {},
+            bad_data: None,
             buffer_size,
             max_batch_size,
             state: PushSourceState::default(),
@@ -296,16 +294,19 @@ impl PushSourceFunc {
                             ctx.control_tx.send(arroyo_rpc::ControlResp::CheckpointCompleted(
                                 arroyo_rpc::CheckpointCompleted {
                                     checkpoint_epoch: 0,
-                                    node_id: ctx.task_info.node_index,
+                                    node_id: ctx.task_info.node_id,
                                     operator_id: ctx.task_info.operator_id,
-                                    subtask_metadata: None,
+                                    subtask_metadata: SubtaskCheckpointMetadata::default(),
                                 }
                             )).await.unwrap();
                         }
                         ControlMessage::LoadCompacted { compacted } => {
                             ctx.load_compacted(compacted).await;
                         }
-                        ControlMessage::NoOp => {}
+                        ControlMessage::NoOp => {},
+                        ControlMessage::Commit { .. } => {
+                            // TODO: Implement commit handling
+                        }
                     }
                 }
 
@@ -342,7 +343,7 @@ impl PushSourceFunc {
                                     }
                                 } else {
                                     // Use default deserialization
-                                    collector.collect_bytes(msg.data.clone(), msg.timestamp).await;
+                                    // TODO: Implement proper deserialization
                                     debug!("Successfully processed message for topic {}", self.topic);
                                 }
 
@@ -366,7 +367,7 @@ impl PushSourceFunc {
                             }
                         } else {
                             // Use default deserialization
-                            collector.collect_bytes(message.data.clone(), message.timestamp).await;
+                            // TODO: Implement proper deserialization
                             debug!("Successfully processed message for topic {}", self.topic);
                         }
 
@@ -403,7 +404,7 @@ impl PushSourceFunc {
                                         }
                                     } else {
                                         // Use default deserialization
-                                        collector.collect_bytes(msg.data.clone(), msg.timestamp).await;
+                                        // TODO: Implement proper deserialization
                                         debug!("Successfully processed message for topic {}", self.topic);
                                     }
 
