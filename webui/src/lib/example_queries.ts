@@ -8,6 +8,31 @@ export interface ExampleQuery {
 
 export const exampleQueries: ExampleQuery[] = [
   {
+    name: 'HTTP Push Events',
+    shortDescription: 'Process events pushed via HTTP',
+    longDescription:
+      'This query creates a table that receives events pushed via HTTP. ' +
+      'It processes JSON events with id and data fields, and calculates event counts over a sliding window.',
+    url: 'https://doc.arroyo.dev/connectors/push',
+    query:
+      'CREATE TABLE http_events (\n' +
+      '    id STRING,\n' +
+      '    data STRING,\n' +
+      '    _timestamp TIMESTAMP\n' +
+      ') WITH (\n' +
+      "    connector = 'push',\n" +
+      "    protocol = 'http',\n" +
+      "    topic = 'events',\n" +
+      "    format = 'json'\n" +
+      ');\n' +
+      '\n' +
+      'SELECT\n' +
+      '    COUNT(*) as event_count,\n' +
+      '    hop(interval \'5 seconds\', interval \'1 minute\') as window\n' +
+      'FROM http_events\n' +
+      'GROUP BY window;\n',
+  },
+  {
     name: 'Mastodon Trends',
     shortDescription: 'Real-time analytics on the Mastodon firehose',
     longDescription:
@@ -67,5 +92,33 @@ export const exampleQueries: ExampleQuery[] = [
       'SELECT avg(CAST(price as FLOAT)) from coinbase\n' +
       "WHERE type = 'ticker'\n" +
       "GROUP BY hop(interval '5' second, interval '1 minute');",
+  },
+  {
+    name: 'WebSocket Push Events',
+    shortDescription: 'Process events pushed via WebSocket',
+    longDescription:
+      'This query creates a table that receives events pushed via WebSocket. ' +
+      'It processes JSON events and performs real-time analytics on the incoming data stream.',
+    url: 'https://doc.arroyo.dev/connectors/push',
+    query:
+      'CREATE TABLE ws_events (\n' +
+      '    id STRING,\n' +
+      '    event_type STRING,\n' +
+      '    data STRING,\n' +
+      '    _timestamp TIMESTAMP\n' +
+      ') WITH (\n' +
+      "    connector = 'push',\n" +
+      "    protocol = 'websocket',\n" +
+      "    topic = 'realtime_events',\n" +
+      "    format = 'json'\n" +
+      ');\n' +
+      '\n' +
+      'SELECT\n' +
+      '    event_type,\n' +
+      '    COUNT(*) as event_count,\n' +
+      '    tumble(interval \'1 minute\') as window\n' +
+      'FROM ws_events\n' +
+      'GROUP BY event_type, window\n' +
+      'ORDER BY event_count DESC;\n',
   },
 ];

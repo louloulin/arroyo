@@ -36,6 +36,16 @@ export type GlobalUdf = schemas['GlobalUdf'];
 export type PipelineLocalUdf = schemas['Udf'];
 export type UdfValidationResult = schemas['UdfValidationResult'];
 
+// Push Connector Types
+export interface PushTopic {
+  name: string;
+  messages: number;
+  created_at: number;
+  last_activity?: number;
+  retention_period: number;
+  compression: boolean;
+}
+
 const BASE_URL = '/api';
 export const { get, post, patch, del } = createClient<paths>({ baseUrl: BASE_URL });
 
@@ -140,6 +150,15 @@ const pipelineKey = (pipelineId?: string) => {
 
 const pipelineJobsKey = (pipelineId?: string) => {
   return pipelineId ? { key: 'PipelineJobs', pipelineId } : null;
+};
+
+// Push Connector Keys
+const pushTopicsKey = (connectionId: string) => {
+  return { key: 'PushTopics', connectionId };
+};
+
+const pushTopicDetailsKey = (connectionId: string, topicName: string) => {
+  return { key: 'PushTopicDetails', connectionId, topicName };
 };
 
 // Ping
@@ -496,6 +515,126 @@ export const usePipeline = (pipelineId?: string, refresh: boolean = false) => {
     pipelineFetcher(),
     options
   );
+
+// Push Connector API Functions
+
+// Fetch push topics
+const pushTopicsFetcher = () => {
+  return async (params: { key: string; connectionId: string }) => {
+    // This would be a real API call in production
+    // For now, we'll return mock data
+    const mockTopics: PushTopic[] = [
+      {
+        name: 'events',
+        messages: 1245,
+        created_at: Date.now() / 1000 - 86400 * 3,
+        last_activity: Date.now() / 1000 - 3600,
+        retention_period: 7 * 86400,
+        compression: true,
+      },
+      {
+        name: 'logs',
+        messages: 5678,
+        created_at: Date.now() / 1000 - 86400 * 5,
+        last_activity: Date.now() / 1000 - 1800,
+        retention_period: 14 * 86400,
+        compression: false,
+      },
+    ];
+
+    // Simulate API delay
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    return mockTopics;
+  };
+};
+
+export const usePushTopics = (connectionId: string) => {
+  const { data, error, isLoading, mutate } = useSWR<PushTopic[]>(
+    pushTopicsKey(connectionId),
+    pushTopicsFetcher(),
+    {
+      refreshInterval: 10000,
+    }
+  );
+
+  return {
+    topics: data,
+    topicsLoading: isLoading,
+    topicsError: error,
+    mutateTopics: mutate,
+  };
+};
+
+// Fetch push topic details
+const pushTopicDetailsFetcher = () => {
+  return async (params: { key: string; connectionId: string; topicName: string }) => {
+    // This would be a real API call in production
+    // For now, we'll return mock data
+    const mockTopic: PushTopic = {
+      name: params.topicName,
+      messages: params.topicName === 'events' ? 1245 : 5678,
+      created_at: Date.now() / 1000 - 86400 * 3,
+      last_activity: Date.now() / 1000 - 3600,
+      retention_period: 7 * 86400,
+      compression: true,
+    };
+
+    // Simulate API delay
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    return mockTopic;
+  };
+};
+
+export const usePushTopicDetails = (connectionId: string, topicName: string) => {
+  const { data, error, isLoading } = useSWR<PushTopic>(
+    pushTopicDetailsKey(connectionId, topicName),
+    pushTopicDetailsFetcher(),
+    {
+      refreshInterval: 5000,
+    }
+  );
+
+  return {
+    topicDetails: data,
+    topicDetailsLoading: isLoading,
+    topicDetailsError: error,
+  };
+};
+
+// Create push topic
+export const createPushTopic = async (
+  connectionId: string,
+  topicName: string,
+  options?: {
+    retention_period?: number;
+    compression?: boolean;
+  }
+) => {
+  // This would be a real API call in production
+  // For now, we'll simulate success
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // Mutate the topics cache to include the new topic
+  const key = pushTopicsKey(connectionId);
+  globalMutate(key);
+
+  return { success: true };
+};
+
+// Delete push topic
+export const deletePushTopic = async (connectionId: string, topicName: string) => {
+  // This would be a real API call in production
+  // For now, we'll simulate success
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // Mutate the topics cache to remove the deleted topic
+  const key = pushTopicsKey(connectionId);
+  globalMutate(key);
+
+  return { success: true };
+};
 
   const updatePipeline = async (params: { stop?: StopType; parallelism?: number }) => {
     if (!pipelineId) {
