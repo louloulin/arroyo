@@ -28,6 +28,7 @@ pub mod nats;
 pub mod nexmark;
 pub mod polling_http;
 pub mod preview;
+pub mod push;
 pub mod rabbitmq;
 pub mod redis;
 pub mod single_file;
@@ -53,6 +54,7 @@ pub fn connectors() -> HashMap<&'static str, Box<dyn ErasedConnector>> {
         Box::new(nexmark::NexmarkConnector {}),
         Box::new(polling_http::PollingHTTPConnector {}),
         Box::new(preview::PreviewConnector {}),
+        Box::new(push::PushConnector {}),
         Box::new(rabbitmq::RabbitmqConnector {}),
         Box::new(redis::RedisConnector {}),
         Box::new(single_file::SingleFileConnector {}),

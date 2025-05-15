@@ -1,0 +1,127 @@
+{
+    "type": "object",
+    "title": "PushTable",
+    "properties": {
+        "topic": {
+            "type": "string",
+            "title": "Topic",
+            "description": "The topic to receive data on"
+        },
+        "protocol": {
+            "type": "string",
+            "title": "Protocol",
+            "description": "The protocol to use for receiving data",
+            "enum": ["http", "quic", "grpc", "websocket"],
+            "default": "http"
+        },
+        "retention_period": {
+            "type": "integer",
+            "title": "Retention Period",
+            "description": "How long to retain data in seconds",
+            "minimum": 0
+        },
+        "http_config": {
+            "type": "object",
+            "title": "HTTP Configuration",
+            "properties": {
+                "timeout": {
+                    "type": "integer",
+                    "title": "Timeout",
+                    "description": "Request timeout in seconds",
+                    "default": 30,
+                    "minimum": 1
+                },
+                "max_connections": {
+                    "type": "integer",
+                    "title": "Max Connections",
+                    "description": "Maximum number of concurrent connections",
+                    "default": 100,
+                    "minimum": 1
+                }
+            },
+            "additionalProperties": false
+        },
+        "quic_config": {
+            "type": "object",
+            "title": "QUIC Configuration",
+            "properties": {
+                "max_concurrent_streams": {
+                    "type": "integer",
+                    "title": "Max Concurrent Streams",
+                    "description": "Maximum number of concurrent streams",
+                    "default": 100,
+                    "minimum": 1
+                },
+                "idle_timeout": {
+                    "type": "integer",
+                    "title": "Idle Timeout",
+                    "description": "Idle timeout in seconds",
+                    "default": 30,
+                    "minimum": 1
+                }
+            },
+            "additionalProperties": false
+        },
+        "grpc_config": {
+            "type": "object",
+            "title": "gRPC Configuration",
+            "properties": {
+                "max_message_size": {
+                    "type": "integer",
+                    "title": "Max Message Size",
+                    "description": "Maximum message size in bytes",
+                    "default": 4194304,
+                    "minimum": 1024
+                },
+                "keepalive_time": {
+                    "type": "integer",
+                    "title": "Keepalive Time",
+                    "description": "Keepalive time in seconds",
+                    "default": 60,
+                    "minimum": 1
+                }
+            },
+            "additionalProperties": false
+        },
+        "websocket_config": {
+            "type": "object",
+            "title": "WebSocket Configuration",
+            "properties": {
+                "max_frame_size": {
+                    "type": "integer",
+                    "title": "Max Frame Size",
+                    "description": "Maximum frame size in bytes",
+                    "default": 1048576,
+                    "minimum": 1024
+                },
+                "heartbeat_interval": {
+                    "type": "integer",
+                    "title": "Heartbeat Interval",
+                    "description": "Heartbeat interval in seconds",
+                    "default": 30,
+                    "minimum": 1
+                }
+            },
+            "additionalProperties": false
+        },
+        "compression": {
+            "type": "string",
+            "title": "Compression",
+            "description": "Compression algorithm to use",
+            "enum": ["none", "gzip", "lz4", "zstd"],
+            "default": "none"
+        },
+        "batch_size": {
+            "type": "integer",
+            "title": "Batch Size",
+            "description": "Number of messages to batch together",
+            "default": 1000,
+            "minimum": 1
+        }
+    },
+    "required": [
+        "topic",
+        "protocol"
+    ],
+    "additionalProperties": false
+}

@@ -1,0 +1,73 @@
+{
+    "type": "object",
+    "title": "PushConfig",
+    "properties": {
+        "buffer_size": {
+            "type": "integer",
+            "title": "Buffer Size",
+            "description": "Size of the internal buffer in bytes",
+            "default": 10485760,
+            "minimum": 1024
+        },
+        "max_batch_size": {
+            "type": "integer",
+            "title": "Max Batch Size",
+            "description": "Maximum number of messages to batch together",
+            "default": 1000,
+            "minimum": 1
+        },
+        "authentication": {
+            "type": "object",
+            "title": "Authentication",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "title": "None",
+                    "properties": {},
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "title": "API Key",
+                    "properties": {
+                        "api_key": {
+                            "type": "string",
+                            "title": "API Key",
+                            "description": "API key for authentication",
+                            "format": "var-str"
+                        }
+                    },
+                    "required": ["api_key"],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "title": "OAuth",
+                    "properties": {
+                        "client_id": {
+                            "type": "string",
+                            "title": "Client ID",
+                            "description": "OAuth client ID",
+                            "format": "var-str"
+                        },
+                        "client_secret": {
+                            "type": "string",
+                            "title": "Client Secret",
+                            "description": "OAuth client secret",
+                            "format": "var-str"
+                        },
+                        "token_url": {
+                            "type": "string",
+                            "title": "Token URL",
+                            "description": "OAuth token URL",
+                            "format": "uri"
+                        }
+                    },
+                    "required": ["client_id", "client_secret", "token_url"],
+                    "additionalProperties": false
+                }
+            ]
+        }
+    },
+    "additionalProperties": false
+}
