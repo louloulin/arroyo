@@ -63,17 +63,8 @@ export const CreateProfile = ({
   };
 
   const onSubmit = async (d: any) => {
-    if (valid == null) {
-      await validate(d);
-      return;
-    }
     state.current = d;
-
-    if (!valid) {
-      onOpen();
-    } else {
-      await submit();
-    }
+    await submit();
   };
 
   const submit = async () => {
@@ -109,8 +100,8 @@ export const CreateProfile = ({
         hasName={true}
         error={error}
         initial={{}}
-        button={valid == null ? 'Validate' : 'Create'}
-        buttonColor={valid == null ? 'blue' : valid ? 'green' : 'red'}
+        button={'Continue'}
+        buttonColor={'blue'}
         onSubmit={onSubmit}
         onChange={values => {
           if (JSON.stringify(values) != JSON.stringify(state)) {

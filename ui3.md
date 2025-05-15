@@ -278,6 +278,14 @@ if (connector.id === 'push') {
    - ✅ 更新 `usePushTopicDetails` 函数
    - ✅ 更新 `createPushTopic` 函数
    - ✅ 更新 `deletePushTopic` 函数
+   - ✅ 修复 TypeScript 编译错误
+   - ✅ 修复 Push Connector 创建流程中的跳转问题
+   - ✅ 修复 ConnectionTester 组件中的 "Cannot convert undefined or null to object" 错误
+   - ✅ 修复 "this connector requires a connection profile, but `connectionProfileId` was not specified" 错误
+   - ✅ 增强错误处理，在测试和创建连接前检查 connectionProfileId
+   - ✅ 移除调试按钮，优化用户界面
+   - ✅ 修复 topic 重复配置问题，确保 state.table 正确初始化
+   - ✅ 将 "Validate" 按钮改为 "Continue" 按钮，简化用户操作流程
 
 3. ⚠️ 添加更多功能
    - ✅ 监控功能

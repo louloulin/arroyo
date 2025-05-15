@@ -53,8 +53,10 @@ export function ConnectionTester({
   const done = messages.length > 0 && messages[messages?.length - 1].done;
   const errored = messages.find(m => m.error) != null;
 
-  let config = JSON.parse(JSON.stringify(state.table));
-  delete config.__meta;
+  let config = state.table ? JSON.parse(JSON.stringify(state.table)) : {};
+  if (config && config.__meta) {
+    delete config.__meta;
+  }
 
   const isValidSQLTableName = (name: string | undefined) => {
     // This is a very basic check and may not cover all cases.
@@ -62,16 +64,31 @@ export function ConnectionTester({
     return name && /^[_a-zA-Z][a-zA-Z0-9_]*$/.test(name);
   };
 
+  // 确保 connectionProfileId 不为 null，特别是对于 Push Connector
+  let connectionProfileId = state.connectionProfileId;
+  if (!connectionProfileId && connector.id === 'push') {
+    console.error('Push Connector requires a connection profile, but none was specified');
+  }
+
   const createRequest: ConnectionTablePost = {
     name: state.name!,
     connector: connector.id,
-    connectionProfileId: state.connectionProfileId,
+    connectionProfileId: connectionProfileId,
     config: config,
     schema: state.schema || undefined,
   };
 
   const onClickTest = async () => {
     if (!testing) {
+      // 检查是否有 connectionProfileId，特别是对于 Push Connector
+      if (!connectionProfileId && connector.id === 'push') {
+        setError({
+          title: 'Connection profile required',
+          body: 'This connector requires a connection profile, but none was specified. Please go back to the first step and select or create a connection profile.'
+        });
+        return;
+      }
+
       setTesting(true);
       setError(null);
 
@@ -87,6 +104,15 @@ export function ConnectionTester({
   };
 
   const submit = async () => {
+    // 检查是否有 connectionProfileId，特别是对于 Push Connector
+    if (!connectionProfileId && connector.id === 'push') {
+      setError({
+        title: 'Connection profile required',
+        body: 'This connector requires a connection profile, but none was specified. Please go back to the first step and select or create a connection profile.'
+      });
+      return;
+    }
+
     setError(null);
     const { error } = await post('/v1/connection_tables', { body: createRequest });
     if (error) {

@@ -134,7 +134,14 @@ const ClusterChooser = ({
 
         <Stack spacing={3} w={800}>
           {connections
-            .filter(c => c.connector == connector)
+            .filter(c => {
+              // 对于 Push Connector，显示所有 Push 类型的连接配置文件
+              if (connector === 'push') {
+                return c.connector === 'push';
+              }
+              // 对于其他 Connector，按原来的逻辑过滤
+              return c.connector === connector;
+            })
             .map(c => (
               <HStack key={c.id} w={768}>
                 <LinkBox
@@ -235,6 +242,31 @@ export const ConfigureProfile = ({
     return <Loading />;
   }
 
+  // 获取连接配置文件的 schema
+  let schema: any;
+  if (connector.connectionConfig) {
+    schema = JSON.parse(connector.connectionConfig);
+  } else if (connector.id === 'push') {
+    // 对于 Push Connector，使用我们创建的配置文件
+    try {
+      // 导入 Push Connector 的配置文件
+      const pushConfigSchema = require('./push/push-connection-config.json');
+      schema = pushConfigSchema;
+    } catch (error) {
+      console.error('Failed to load Push Connector config schema:', error);
+      schema = {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            title: 'Name',
+            description: 'Enter a name to identify this PushConfig'
+          }
+        }
+      };
+    }
+  }
+
   if (creatingCluster) {
     return (
       <Stack spacing={8}>
@@ -244,7 +276,10 @@ export const ConfigureProfile = ({
           </Button>
         </Box>
         <CreateProfile
-          connector={connector}
+          connector={{
+            ...connector,
+            connectionConfig: JSON.stringify(schema)
+          }}
           addConnectionProfile={c => {
             mutateConnectionProfiles();
           }}
@@ -264,7 +299,7 @@ export const ConfigureProfile = ({
         }}
         connector={connector.id}
         connections={connectionProfiles!}
-        schema={JSON.parse(connector.connectionConfig!)}
+        schema={schema}
         setCreatingCluster={setCreatingCluster}
       />
     );

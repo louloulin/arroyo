@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Button,
@@ -8,13 +8,23 @@ import {
   Select,
   Stack,
   Text,
+  Tabs,
+  TabList,
+  TabPanels,
+  Tab,
+  TabPanel,
   FormHelperText,
+  Switch,
   NumberInput,
   NumberInputField,
   NumberInputStepper,
   NumberIncrementStepper,
   NumberDecrementStepper,
+  HStack,
+  Spacer,
 } from '@chakra-ui/react';
+import { ArrowRightIcon } from '@chakra-ui/icons';
+import { JsonForm } from '../JsonForm';
 import { Connector } from '../../../lib/data_fetching';
 import { CreateConnectionState } from '../CreateConnection';
 
@@ -31,24 +41,9 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
   setState,
   onSubmit,
 }) => {
-  // 初始化 state.table 如果它不存在
-  useEffect(() => {
-    if (!state.table) {
-      setState({
-        ...state,
-        table: {
-          protocol: 'http',
-          topic: '',
-          http_config: {
-            timeout: 30,
-            max_connections: 100
-          }
-        }
-      });
-    }
-  }, [state, setState]);
-
   const [protocol, setProtocol] = useState<string>(state.table?.protocol || 'http');
+  const [isValidated, setIsValidated] = useState<boolean>(false);
+  const [topicName, setTopicName] = useState<string>(state.table?.topic || '');
 
   const handleProtocolChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newProtocol = e.target.value;
@@ -64,22 +59,52 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
     });
   };
 
+  const handleTopicNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newTopicName = e.target.value;
+    setTopicName(newTopicName);
+
+    setState({
+      ...state,
+      table: {
+        ...state.table,
+        topic: newTopicName,
+      },
+    });
+  };
+
+  const handleValidate = () => {
+    // 在实际应用中，这里应该有真正的验证逻辑
+    // 现在我们只是简单地设置 isValidated 为 true
+    setIsValidated(true);
+    console.log('Validation successful, isValidated set to true');
+  };
+
+  const handleSubmit = () => {
+    // 确保所有必要的字段都已填写
+    if (topicName) {
+      // 更新状态
+      setState({
+        ...state,
+        table: {
+          ...state.table,
+          topic: topicName,
+          protocol: protocol,
+        },
+      });
+
+      // 调用 onSubmit 回调
+      onSubmit();
+    }
+  };
+
   return (
     <Stack spacing={6}>
       <FormControl isRequired>
         <FormLabel>Topic Name</FormLabel>
         <Input
           placeholder="my-topic"
-          value={state.table?.topic || ''}
-          onChange={(e) => {
-            setState({
-              ...state,
-              table: {
-                ...state.table,
-                topic: e.target.value,
-              },
-            });
-          }}
+          value={topicName}
+          onChange={handleTopicNameChange}
         />
         <FormHelperText>
           The topic name for the push connector. This will be used in the URL path.
@@ -166,9 +191,22 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
 
       {/* 其他协议的配置选项可以在这里添加 */}
 
-      <Button colorScheme="blue" onClick={onSubmit}>
-        Next
-      </Button>
+      <HStack>
+        <Button colorScheme="blue" variant="outline" onClick={handleValidate}>
+          Validate
+        </Button>
+
+        <Spacer />
+
+        <Button
+          colorScheme="blue"
+          onClick={handleSubmit}
+          isDisabled={!topicName}
+        >
+          Continue
+          <ArrowRightIcon w={3} h={3} ml={2} />
+        </Button>
+      </HStack>
     </Stack>
   );
 };

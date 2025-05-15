@@ -4,6 +4,7 @@ import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbLink,
+  Button,
   Container,
   Heading,
   Stack,
@@ -41,14 +42,28 @@ export const ConnectionCreator = ({ connector }: { connector: Connector }) => {
     schema: null,
   });
 
+  // 计算步骤数量：
+  // 1. 如果需要配置连接配置文件，加1步
+  // 2. 配置表格总是需要的，加1步
+  // 3. 如果需要自定义schema，加1步
+  // 4. 最后的创建步骤，加1步
+  let stepCount = 2; // 默认：配置表格 + 创建
+  if (connector.connectionConfig || connector.id === 'push') {
+    stepCount++; // 配置连接配置文件
+  }
+  if (connector.customSchemas) {
+    stepCount++; // 自定义schema
+  }
+
   const { activeStep, setActiveStep } = useSteps({
     index: 0,
-    count: connector.customSchemas ? 3 : 2,
+    count: stepCount,
   });
 
   let steps = [];
 
-  if (connector.connectionConfig) {
+  // 确保 Push Connector 始终有 Configure profile 步骤
+  if (connector.connectionConfig || connector.id === 'push') {
     let next = steps.length + 1;
     steps.push({
       title: 'Configure profile',
@@ -101,6 +116,13 @@ export const ConnectionCreator = ({ connector }: { connector: Connector }) => {
     title: 'Create',
     el: <ConnectionTester connector={connector} state={state} setState={setState} />,
   });
+
+  // 添加调试功能，允许手动跳转到下一步
+  const handleNextStep = () => {
+    if (activeStep < steps.length - 1) {
+      setActiveStep(activeStep + 1);
+    }
+  };
 
   return (
     <Stack spacing={8}>

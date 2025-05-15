@@ -1,0 +1,96 @@
+{
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "title": "Name",
+      "description": "Enter a name to identify this PushConfig"
+    },
+    "buffer_size": {
+      "type": "integer",
+      "title": "Buffer Size",
+      "description": "Size of the internal buffer in bytes",
+      "default": 1048576
+    },
+    "max_batch_size": {
+      "type": "integer",
+      "title": "Max Batch Size",
+      "description": "Maximum number of messages to batch together",
+      "default": 1000
+    },
+    "authentication": {
+      "type": "object",
+      "title": "Authentication",
+      "properties": {
+        "type": {
+          "type": "string",
+          "title": "Authentication Type",
+          "enum": ["None", "API Key", "OAuth"],
+          "default": "None"
+        },
+        "api_key": {
+          "type": "string",
+          "title": "API Key",
+          "description": "API Key for authentication"
+        },
+        "oauth_client_id": {
+          "type": "string",
+          "title": "OAuth Client ID",
+          "description": "OAuth Client ID"
+        },
+        "oauth_client_secret": {
+          "type": "string",
+          "title": "OAuth Client Secret",
+          "description": "OAuth Client Secret"
+        },
+        "oauth_token_url": {
+          "type": "string",
+          "title": "OAuth Token URL",
+          "description": "URL to obtain OAuth tokens"
+        }
+      },
+      "dependencies": {
+        "type": {
+          "oneOf": [
+            {
+              "properties": {
+                "type": {
+                  "enum": ["None"]
+                }
+              }
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": ["API Key"]
+                },
+                "api_key": {
+                  "type": "string"
+                }
+              },
+              "required": ["api_key"]
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": ["OAuth"]
+                },
+                "oauth_client_id": {
+                  "type": "string"
+                },
+                "oauth_client_secret": {
+                  "type": "string"
+                },
+                "oauth_token_url": {
+                  "type": "string"
+                }
+              },
+              "required": ["oauth_client_id", "oauth_client_secret", "oauth_token_url"]
+            }
+          ]
+        }
+      }
+    }
+  }
+}
