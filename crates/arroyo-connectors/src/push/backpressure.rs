@@ -74,7 +74,7 @@ impl BackoffStrategy {
             }
         }
     }
-    
+
     /// Reset backoff
     pub fn reset(&mut self) {
         match self {
@@ -115,7 +115,7 @@ impl BackpressureController {
             space_available: Notify::new(),
         }
     }
-    
+
     /// Create a new backpressure controller with custom backoff strategy
     pub fn with_backoff_strategy(max_buffer_size: usize, backoff_strategy: BackoffStrategy) -> Self {
         Self {
@@ -125,7 +125,7 @@ impl BackpressureController {
             space_available: Notify::new(),
         }
     }
-    
+
     /// Acquire space in the buffer
     pub async fn acquire(&self, size: usize) -> Result<(), anyhow::Error> {
         loop {
@@ -143,10 +143,10 @@ impl BackpressureController {
                         // Reset backoff strategy
                         let mut backoff_strategy = self.backoff_strategy.lock().await;
                         backoff_strategy.reset();
-                        
-                        debug!("Acquired {} bytes, current buffer size: {}/{}", 
+
+                        debug!("Acquired {} bytes, current buffer size: {}/{}",
                                size, current + size, self.max_buffer_size);
-                        
+
                         return Ok(());
                     }
                     Err(_) => {
@@ -155,15 +155,15 @@ impl BackpressureController {
                     }
                 }
             }
-            
+
             // Not enough space, apply backpressure
             let backoff = {
                 let mut backoff_strategy = self.backoff_strategy.lock().await;
                 backoff_strategy.next_backoff()
             };
-            
+
             debug!("Backpressure applied, waiting for {} ms", backoff.as_millis());
-            
+
             // Wait for space to be available or timeout
             let space_available = self.space_available.notified();
             tokio::select! {
@@ -178,29 +178,29 @@ impl BackpressureController {
             }
         }
     }
-    
+
     /// Release space in the buffer
     pub fn release(&self, size: usize) {
         let current = self.current_buffer_size.fetch_sub(size, Ordering::Relaxed);
         let new_size = current.saturating_sub(size);
-        
-        debug!("Released {} bytes, current buffer size: {}/{}", 
+
+        debug!("Released {} bytes, current buffer size: {}/{}",
                size, new_size, self.max_buffer_size);
-        
+
         // Notify that space is available
-        self.space_available.notify_all();
+        self.space_available.notify_waiters();
     }
-    
+
     /// Get current buffer size
     pub fn current_buffer_size(&self) -> usize {
         self.current_buffer_size.load(Ordering::Relaxed)
     }
-    
+
     /// Get maximum buffer size
     pub fn max_buffer_size(&self) -> usize {
         self.max_buffer_size
     }
-    
+
     /// Get utilization (0.0 - 1.0)
     pub fn utilization(&self) -> f64 {
         let current = self.current_buffer_size.load(Ordering::Relaxed);

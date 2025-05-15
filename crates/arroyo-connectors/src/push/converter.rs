@@ -36,21 +36,21 @@ impl PushMessageConverter {
         // Add fields from connection schema
         for (i, field) in connection_schema.fields.iter().enumerate() {
             let arrow_field = Self::source_field_to_arrow_field(field)?;
-            
+
             // Check if this is a timestamp field
             if arrow_field.data_type().is_timestamp() {
                 timestamp_field_index = Some(i);
             }
-            
+
             // Check if this is a topic field
             if field.field_name == "topic" {
                 topic_field_index = Some(i);
             }
-            
+
             field_names.push(field.field_name.clone());
             fields.push(arrow_field);
         }
-        
+
         // If no timestamp field is found, add one
         if timestamp_field_index.is_none() {
             fields.push(Field::new(
@@ -61,16 +61,16 @@ impl PushMessageConverter {
             field_names.push("_timestamp".to_string());
             timestamp_field_index = Some(fields.len() - 1);
         }
-        
+
         // If no topic field is found, add one
         if topic_field_index.is_none() {
             fields.push(Field::new("_topic", DataType::Utf8, false));
             field_names.push("_topic".to_string());
             topic_field_index = Some(fields.len() - 1);
         }
-        
+
         let schema = Arc::new(Schema::new(fields));
-        
+
         Ok(Self {
             schema,
             field_names,
@@ -78,7 +78,7 @@ impl PushMessageConverter {
             topic_field_index,
         })
     }
-    
+
     /// Convert source field to Arrow field
     fn source_field_to_arrow_field(field: &SourceField) -> Result<Field, UserError> {
         // Get field data type
@@ -103,7 +103,6 @@ impl PushMessageConverter {
                         return Err(UserError {
                             name: "Unsupported data type".to_string(),
                             details: format!("Unsupported primitive type: {:?}", primitive_type),
-                            temporary: false,
                         });
                     }
                 }
@@ -155,22 +154,21 @@ impl PushMessageConverter {
                 return Err(UserError {
                     name: "Unsupported data type".to_string(),
                     details: format!("Unsupported field type: {:?}", field.field_type.r#type),
-                    temporary: false,
                 });
             }
         };
-        
+
         Ok(Field::new(&field.field_name, data_type, field.nullable))
     }
-    
+
     /// Convert push message to Arrow record batch
     pub fn convert(&self, message: &PushMessage) -> Result<RecordBatch, UserError> {
         // Parse message data based on format
         let parsed_data = self.parse_message_data(message)?;
-        
+
         // Create arrays for each field
         let mut arrays: Vec<ArrayRef> = Vec::with_capacity(self.field_names.len());
-        
+
         // Fill arrays with data
         for (i, field_name) in self.field_names.iter().enumerate() {
             if Some(i) == self.timestamp_field_index {
@@ -198,33 +196,32 @@ impl PushMessageConverter {
                 }
             }
         }
-        
+
         // Create record batch
         let options = RecordBatchOptions::new().with_row_count(Some(1));
         let record_batch = RecordBatch::try_new_with_options(self.schema.clone(), arrays, &options)
             .map_err(|e| UserError {
                 name: "Record batch creation error".to_string(),
                 details: format!("Failed to create record batch: {}", e),
-                temporary: false,
             })?;
-        
+
         Ok(record_batch)
     }
-    
+
     /// Parse message data based on format
     fn parse_message_data(&self, message: &PushMessage) -> Result<HashMap<String, ArrayRef>, UserError> {
         // TODO: Implement parsing based on format (JSON, Avro, Protobuf, etc.)
         // For now, just return an empty map
         Ok(HashMap::new())
     }
-    
+
     /// Create a null array of the specified type
     fn create_null_array(data_type: &DataType, length: usize) -> Result<ArrayRef, UserError> {
         // TODO: Implement null array creation for all supported types
         // For now, just return a null string array
         Ok(Arc::new(StringArray::from(vec![None as Option<&str>; length])))
     }
-    
+
     /// Get the schema
     pub fn schema(&self) -> Arc<Schema> {
         self.schema.clone()

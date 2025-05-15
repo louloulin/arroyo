@@ -15,15 +15,15 @@ pub enum BufferError {
     /// Buffer is full
     #[error("Buffer is full")]
     Full,
-    
+
     /// Buffer is closed
     #[error("Buffer is closed")]
     Closed,
-    
+
     /// Timeout
     #[error("Timeout")]
     Timeout,
-    
+
     /// Other error
     #[error("Buffer error: {0}")]
     Other(String),
@@ -93,17 +93,17 @@ impl MemoryBuffer {
             }),
         }
     }
-    
+
     /// Push a message to the buffer
     pub async fn push(&self, message: PushMessage) -> Result<(), BufferError> {
         // Check if buffer is closed
         if *self.closed.read().await {
             return Err(BufferError::Closed);
         }
-        
+
         // Get message size
         let message_size = message.data.len();
-        
+
         // Check if message fits in buffer
         {
             let current_size = *self.current_size_bytes.read().await;
@@ -111,21 +111,21 @@ impl MemoryBuffer {
                 // Update stats
                 let mut stats = self.stats.write().await;
                 stats.full_count += 1;
-                
+
                 // Return error
                 return Err(BufferError::Full);
             }
         }
-        
+
         // Push message to buffer
         {
             let mut buffer = self.buffer.lock().await;
             buffer.push_back(message);
-            
+
             // Update current size
             let mut current_size = self.current_size_bytes.write().await;
             *current_size += message_size;
-            
+
             // Update stats
             let mut stats = self.stats.write().await;
             stats.current_size = buffer.len();
@@ -133,21 +133,21 @@ impl MemoryBuffer {
             stats.total_bytes_pushed += message_size as u64;
             stats.avg_message_size = stats.total_bytes_pushed as f64 / stats.total_pushed as f64;
             stats.utilization = *current_size as f64 / self.max_size_bytes as f64;
-            
-            debug!("Pushed message to buffer, current size: {}/{} bytes, {} messages", 
+
+            debug!("Pushed message to buffer, current size: {}/{} bytes, {} messages",
                    *current_size, self.max_size_bytes, buffer.len());
         }
-        
+
         // Notify that data is available
         self.data_available.notify_one();
-        
+
         Ok(())
     }
-    
+
     /// Push a message to the buffer with timeout
     pub async fn push_timeout(&self, message: PushMessage, timeout: Duration) -> Result<(), BufferError> {
         let start = Instant::now();
-        
+
         loop {
             match self.push(message.clone()).await {
                 Ok(()) => return Ok(()),
@@ -156,7 +156,7 @@ impl MemoryBuffer {
                     if start.elapsed() >= timeout {
                         return Err(BufferError::Timeout);
                     }
-                    
+
                     // Wait for space to be available
                     let space_available = self.space_available.notified();
                     tokio::select! {
@@ -174,23 +174,23 @@ impl MemoryBuffer {
             }
         }
     }
-    
+
     /// Pop a message from the buffer
     pub async fn pop(&self) -> Result<PushMessage, BufferError> {
         // Check if buffer is closed
         if *self.closed.read().await && self.is_empty().await {
             return Err(BufferError::Closed);
         }
-        
+
         // Pop message from buffer
         let message = {
             let mut buffer = self.buffer.lock().await;
-            
+
             // Wait for data if buffer is empty
             if buffer.is_empty() {
                 // Release lock and wait for data
                 drop(buffer);
-                
+
                 // Wait for data to be available
                 let data_available = self.data_available.notified();
                 tokio::select! {
@@ -208,42 +208,42 @@ impl MemoryBuffer {
                 buffer.pop_front()
             }
         };
-        
+
         // Process message if available
         if let Some(message) = message {
             // Get message size
             let message_size = message.data.len();
-            
+
             // Update current size
             {
                 let mut current_size = self.current_size_bytes.write().await;
                 *current_size = current_size.saturating_sub(message_size);
-                
+
                 // Update stats
                 let mut stats = self.stats.write().await;
                 stats.current_size -= 1;
                 stats.total_popped += 1;
                 stats.total_bytes_popped += message_size as u64;
                 stats.utilization = *current_size as f64 / self.max_size_bytes as f64;
-                
-                debug!("Popped message from buffer, current size: {}/{} bytes, {} messages", 
+
+                debug!("Popped message from buffer, current size: {}/{} bytes, {} messages",
                        *current_size, self.max_size_bytes, stats.current_size);
             }
-            
+
             // Notify that space is available
             self.space_available.notify_one();
-            
+
             Ok(message)
         } else {
-            // Try again
-            self.pop().await
+            // Try again with indirection to avoid infinite recursion
+            Box::pin(self.pop()).await
         }
     }
-    
+
     /// Pop a message from the buffer with timeout
     pub async fn pop_timeout(&self, timeout: Duration) -> Result<PushMessage, BufferError> {
         let start = Instant::now();
-        
+
         loop {
             match self.try_pop().await {
                 Ok(message) => return Ok(message),
@@ -252,7 +252,7 @@ impl MemoryBuffer {
                     if start.elapsed() >= timeout {
                         return Err(BufferError::Timeout);
                     }
-                    
+
                     // Wait for data to be available
                     let data_available = self.data_available.notified();
                     tokio::select! {
@@ -270,82 +270,82 @@ impl MemoryBuffer {
             }
         }
     }
-    
+
     /// Try to pop a message from the buffer
     pub async fn try_pop(&self) -> Result<PushMessage, BufferError> {
         // Check if buffer is closed
         if *self.closed.read().await && self.is_empty().await {
             return Err(BufferError::Closed);
         }
-        
+
         // Pop message from buffer
         let message = {
             let mut buffer = self.buffer.lock().await;
-            
+
             // Return error if buffer is empty
             if buffer.is_empty() {
                 return Err(BufferError::Full);
             }
-            
+
             buffer.pop_front()
         };
-        
+
         // Process message if available
         if let Some(message) = message {
             // Get message size
             let message_size = message.data.len();
-            
+
             // Update current size
             {
                 let mut current_size = self.current_size_bytes.write().await;
                 *current_size = current_size.saturating_sub(message_size);
-                
+
                 // Update stats
                 let mut stats = self.stats.write().await;
                 stats.current_size -= 1;
                 stats.total_popped += 1;
                 stats.total_bytes_popped += message_size as u64;
                 stats.utilization = *current_size as f64 / self.max_size_bytes as f64;
-                
-                debug!("Popped message from buffer, current size: {}/{} bytes, {} messages", 
+
+                debug!("Popped message from buffer, current size: {}/{} bytes, {} messages",
                        *current_size, self.max_size_bytes, stats.current_size);
             }
-            
+
             // Notify that space is available
             self.space_available.notify_one();
-            
+
             Ok(message)
         } else {
             Err(BufferError::Other("Buffer is empty but lock reported non-empty".to_string()))
         }
     }
-    
+
     /// Check if buffer is empty
     pub async fn is_empty(&self) -> bool {
         let buffer = self.buffer.lock().await;
         buffer.is_empty()
     }
-    
+
     /// Get buffer size
     pub async fn len(&self) -> usize {
         let buffer = self.buffer.lock().await;
         buffer.len()
     }
-    
+
     /// Get buffer stats
     pub async fn stats(&self) -> BufferStats {
         self.stats.read().await.clone()
     }
-    
+
     /// Close the buffer
     pub async fn close(&self) {
         let mut closed = self.closed.write().await;
         *closed = true;
-        
+
         // Notify all waiters
-        self.data_available.notify_all();
-        self.space_available.notify_all();
-        
+        self.data_available.notify_waiters();
+        self.space_available.notify_waiters();
+
         info!("Buffer closed");
     }
 }

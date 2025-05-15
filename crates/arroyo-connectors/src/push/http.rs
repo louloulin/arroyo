@@ -7,7 +7,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, post, delete},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -85,7 +85,7 @@ impl HttpServer {
 
         // Start server
         info!("Starting HTTP server on {}", self.config.addr);
-        let server = axum::Server::bind(&self.config.addr).serve(app.into_make_service());
+        let server = axum::Server::bind(self.config.addr).serve(app.into_make_service());
 
         // Store server handle
         let handle = tokio::spawn(async move {

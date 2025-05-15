@@ -3,7 +3,8 @@ use arroyo_operator::operator::ConstructedOperator;
 use arroyo_rpc::api_types::connections::{ConnectionProfile, ConnectionSchema, ConnectionType, TestSourceMessage};
 use arroyo_rpc::var_str::VarStr;
 use arroyo_rpc::{ConnectorOptions, OperatorConfig};
-use arroyo_types::formats::{Format, Framing, BadData};
+use arroyo_rpc::formats::{Format, Framing, BadData};
+use datafusion::sql::sqlparser::ast::{Expr, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -139,17 +140,17 @@ impl Connector for PushConnector {
                 .pull_opt_str("protocol")?
                 .unwrap_or_else(|| "http".to_string()),
             retention_period: options.pull_opt_u64("retention_period")?,
-            http_config: options.get("http_config").and_then(|v| {
-                serde_json::from_value::<HashMap<String, String>>(v.clone()).ok()
+            http_config: options.pull_opt_str("http_config")?.and_then(|s| {
+                serde_json::from_str::<HashMap<String, String>>(&s).ok()
             }),
-            quic_config: options.get("quic_config").and_then(|v| {
-                serde_json::from_value::<HashMap<String, String>>(v.clone()).ok()
+            quic_config: options.pull_opt_str("quic_config")?.and_then(|s| {
+                serde_json::from_str::<HashMap<String, String>>(&s).ok()
             }),
-            grpc_config: options.get("grpc_config").and_then(|v| {
-                serde_json::from_value::<HashMap<String, String>>(v.clone()).ok()
+            grpc_config: options.pull_opt_str("grpc_config")?.and_then(|s| {
+                serde_json::from_str::<HashMap<String, String>>(&s).ok()
             }),
-            websocket_config: options.get("websocket_config").and_then(|v| {
-                serde_json::from_value::<HashMap<String, String>>(v.clone()).ok()
+            websocket_config: options.pull_opt_str("websocket_config")?.and_then(|s| {
+                serde_json::from_str::<HashMap<String, String>>(&s).ok()
             }),
             compression: options.pull_opt_str("compression")?,
             batch_size: options.pull_opt_u64("batch_size")?,
@@ -161,8 +162,8 @@ impl Connector for PushConnector {
             })?
         } else {
             PushConfig {
-                buffer_size: options.pull_opt_u64("buffer_size")?.map(|v| v as usize),
-                max_batch_size: options.pull_opt_u64("max_batch_size")?.map(|v| v as usize),
+                buffer_size: options.pull_opt_u64("buffer_size")?,
+                max_batch_size: options.pull_opt_u64("max_batch_size")?,
                 authentication: None,
             }
         };

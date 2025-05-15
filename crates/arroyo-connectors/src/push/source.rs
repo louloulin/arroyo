@@ -9,8 +9,8 @@ use arroyo_operator::operator::{ConstructedOperator, SourceOperator};
 use arroyo_operator::SourceFinishType;
 use arroyo_rpc::grpc::rpc::TableConfig;
 use arroyo_rpc::{OperatorConfig, ControlMessage};
+use arroyo_rpc::formats::{Format, Framing, BadData};
 use arroyo_state::global_table_config;
-use arroyo_types::formats::{Format, Framing, BadData};
 use arroyo_types::UserError;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -32,7 +32,7 @@ pub struct PushMessage {
 }
 
 /// State for the push source operator
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default, bincode::Encode, bincode::Decode)]
 pub struct PushSourceState {
     pub messages_received: u64,
     pub bytes_received: u64,
@@ -66,8 +66,8 @@ impl PushSourceFunc {
         table: PushTable,
         operator_config: OperatorConfig,
     ) -> Result<ConstructedOperator> {
-        let buffer_size = config.buffer_size.unwrap_or(10 * 1024 * 1024);
-        let max_batch_size = config.max_batch_size.unwrap_or(1000);
+        let buffer_size = config.buffer_size.unwrap_or_else(|| 10 * 1024 * 1024);
+        let max_batch_size = config.max_batch_size.unwrap_or_else(|| 1000);
 
         // Create a channel for receiving messages
         let (tx, rx) = mpsc::channel(buffer_size);
@@ -88,13 +88,13 @@ impl PushSourceFunc {
         let http_server = if table.protocol == "http" {
             let port = table.http_config.as_ref()
                 .and_then(|config| config.get("port"))
-                .unwrap_or("8000");
+                .map_or("8000", |v| v.as_str());
             let timeout = table.http_config.as_ref()
                 .and_then(|config| config.get("timeout"))
-                .unwrap_or("30");
+                .map_or("30", |v| v.as_str());
             let max_connections = table.http_config.as_ref()
                 .and_then(|config| config.get("max_connections"))
-                .unwrap_or("100");
+                .map_or("100", |v| v.as_str());
 
             let server_config = HttpServerConfig {
                 addr: format!("0.0.0.0:{}", port).parse()
@@ -110,11 +110,11 @@ impl PushSourceFunc {
         };
 
         // Create converter
-        let converter = if let Some(schema) = operator_config.schema.as_ref() {
+        let converter = if let Some(schema) = operator_config.connection.as_ref().and_then(|c| c.schema.as_ref()) {
             match PushMessageConverter::new(schema) {
                 Ok(converter) => Some(converter),
                 Err(e) => {
-                    return Err(anyhow::anyhow!("Failed to create converter: {}", e));
+                    return Err(anyhow::anyhow!("Failed to create converter: {:?}", e));
                 }
             }
         } else {
@@ -133,7 +133,7 @@ impl PushSourceFunc {
             message_rx: Some(rx),
             message_tx: Some(tx),
             http_server,
-            auth_config: config.authentication,
+            auth_config: None, // TODO: Map authentication from config
             memory_buffer: Some(memory_buffer),
             backpressure_controller: Some(backpressure_controller),
             batch_processor: Some(batch_processor),
@@ -157,7 +157,6 @@ impl PushSourceFunc {
                                 return Err(UserError {
                                     name: "HTTP server error".to_string(),
                                     details: format!("Failed to start HTTP server: {}", e),
-                                    temporary: false,
                                 });
                             }
                         }
@@ -165,14 +164,12 @@ impl PushSourceFunc {
                         return Err(UserError {
                             name: "Configuration error".to_string(),
                             details: "Message channel not initialized".to_string(),
-                            temporary: false,
                         });
                     }
                 } else {
                     return Err(UserError {
                         name: "Configuration error".to_string(),
                         details: "HTTP server not initialized".to_string(),
-                        temporary: false,
                     });
                 }
             }
@@ -182,7 +179,6 @@ impl PushSourceFunc {
                 return Err(UserError {
                     name: "Not implemented".to_string(),
                     details: "QUIC protocol support is not implemented yet".to_string(),
-                    temporary: false,
                 });
             }
             "grpc" => {
@@ -191,7 +187,6 @@ impl PushSourceFunc {
                 return Err(UserError {
                     name: "Not implemented".to_string(),
                     details: "gRPC protocol support is not implemented yet".to_string(),
-                    temporary: false,
                 });
             }
             "websocket" => {
@@ -200,14 +195,12 @@ impl PushSourceFunc {
                 return Err(UserError {
                     name: "Not implemented".to_string(),
                     details: "WebSocket protocol support is not implemented yet".to_string(),
-                    temporary: false,
                 });
             }
             _ => {
                 return Err(UserError {
                     name: "Invalid protocol".to_string(),
                     details: format!("Unsupported protocol: {}", self.protocol),
-                    temporary: false,
                 });
             }
         }
@@ -297,10 +290,10 @@ impl PushSourceFunc {
                                 .await
                                 .expect("should have table p in push source");
 
-                            s.insert(&(), self.state.clone());
+                            s.insert((), self.state.clone());
 
                             // Acknowledge checkpoint
-                            ctx.control_tx.send(arroyo_rpc::ControlResp::CheckpointComplete {
+                            ctx.control_tx.send(arroyo_rpc::ControlResp::CheckpointCompleted {
                                 subtask: ctx.task_info.task_index as usize,
                             }).await.unwrap();
                         }
@@ -335,27 +328,27 @@ impl PushSourceFunc {
                                     match converter.convert(&msg) {
                                         Ok(record_batch) => {
                                             // Collect record batch
-                                            match collector.collect_batch(record_batch).await {
+                                            match collector.collect(record_batch).await {
                                                 Ok(_) => {
                                                     debug!("Successfully processed message for topic {}", self.topic);
                                                 }
                                                 Err(e) => {
-                                                    error!("Error collecting record batch: {}", e);
+                                                    error!("Error collecting record batch: {:?}", e);
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            error!("Error converting message to Arrow format: {}", e);
+                                            error!("Error converting message to Arrow format: {:?}", e);
                                         }
                                     }
                                 } else {
                                     // Use default deserialization
-                                    match collector.collect_deserialized(msg.data.clone(), msg.timestamp).await {
+                                    match collector.collect_raw(msg.data.clone(), msg.timestamp).await {
                                         Ok(_) => {
                                             debug!("Successfully processed message for topic {}", self.topic);
                                         }
                                         Err(e) => {
-                                            error!("Error processing message: {}", e);
+                                            error!("Error processing message: {:?}", e);
                                         }
                                     }
                                 }
@@ -371,27 +364,27 @@ impl PushSourceFunc {
                             match converter.convert(&message) {
                                 Ok(record_batch) => {
                                     // Collect record batch
-                                    match collector.collect_batch(record_batch).await {
+                                    match collector.collect(record_batch).await {
                                         Ok(_) => {
                                             debug!("Successfully processed message for topic {}", self.topic);
                                         }
                                         Err(e) => {
-                                            error!("Error collecting record batch: {}", e);
+                                            error!("Error collecting record batch: {:?}", e);
                                         }
                                     }
                                 }
                                 Err(e) => {
-                                    error!("Error converting message to Arrow format: {}", e);
+                                    error!("Error converting message to Arrow format: {:?}", e);
                                 }
                             }
                         } else {
                             // Use default deserialization
-                            match collector.collect_deserialized(message.data.clone(), message.timestamp).await {
+                            match collector.collect_raw(message.data.clone(), message.timestamp).await {
                                 Ok(_) => {
                                     debug!("Successfully processed message for topic {}", self.topic);
                                 }
                                 Err(e) => {
-                                    error!("Error processing message: {}", e);
+                                    error!("Error processing message: {:?}", e);
                                 }
                             }
                         }
@@ -420,27 +413,27 @@ impl PushSourceFunc {
                                         match converter.convert(&msg) {
                                             Ok(record_batch) => {
                                                 // Collect record batch
-                                                match collector.collect_batch(record_batch).await {
+                                                match collector.collect(record_batch).await {
                                                     Ok(_) => {
                                                         debug!("Successfully processed message for topic {}", self.topic);
                                                     }
                                                     Err(e) => {
-                                                        error!("Error collecting record batch: {}", e);
+                                                        error!("Error collecting record batch: {:?}", e);
                                                     }
                                                 }
                                             }
                                             Err(e) => {
-                                                error!("Error converting message to Arrow format: {}", e);
+                                                error!("Error converting message to Arrow format: {:?}", e);
                                             }
                                         }
                                     } else {
                                         // Use default deserialization
-                                        match collector.collect_deserialized(msg.data.clone(), msg.timestamp).await {
+                                        match collector.collect_raw(msg.data.clone(), msg.timestamp).await {
                                             Ok(_) => {
                                                 debug!("Successfully processed message for topic {}", self.topic);
                                             }
                                             Err(e) => {
-                                                error!("Error processing message: {}", e);
+                                                error!("Error processing message: {:?}", e);
                                             }
                                         }
                                     }

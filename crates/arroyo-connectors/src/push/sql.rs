@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use arroyo_rpc::ConnectorOptions;
+use datafusion::sql::sqlparser::ast::{Expr, Value};
 use tracing::{debug, warn};
 
 /// Parse protocol-specific options from SQL WITH clause
@@ -10,7 +11,7 @@ pub fn parse_protocol_options(options: &mut ConnectorOptions) -> Result<(), anyh
     let protocol = options
         .pull_opt_str("protocol")?
         .unwrap_or_else(|| "http".to_string());
-    
+
     // Parse protocol-specific options
     match protocol.as_str() {
         "http" => parse_http_options(options)?,
@@ -24,14 +25,14 @@ pub fn parse_protocol_options(options: &mut ConnectorOptions) -> Result<(), anyh
             ));
         }
     }
-    
+
     Ok(())
 }
 
 /// Parse HTTP-specific options
 fn parse_http_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Error> {
     let mut http_config = HashMap::new();
-    
+
     // Extract HTTP-specific options
     for key in options.keys().cloned().collect::<Vec<_>>() {
         if key.starts_with("http.") {
@@ -42,19 +43,21 @@ fn parse_http_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Erro
             }
         }
     }
-    
+
     // Add HTTP config to options if any options were found
     if !http_config.is_empty() {
-        options.insert("http_config".to_string(), serde_json::to_value(http_config)?);
+        options.options.insert("http_config".to_string(), datafusion::sql::sqlparser::ast::Expr::Value(
+            datafusion::sql::sqlparser::ast::Value::SingleQuotedString(serde_json::to_string(&http_config)?)
+        ));
     }
-    
+
     Ok(())
 }
 
 /// Parse QUIC-specific options
 fn parse_quic_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Error> {
     let mut quic_config = HashMap::new();
-    
+
     // Extract QUIC-specific options
     for key in options.keys().cloned().collect::<Vec<_>>() {
         if key.starts_with("quic.") {
@@ -65,19 +68,21 @@ fn parse_quic_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Erro
             }
         }
     }
-    
+
     // Add QUIC config to options if any options were found
     if !quic_config.is_empty() {
-        options.insert("quic_config".to_string(), serde_json::to_value(quic_config)?);
+        options.options.insert("quic_config".to_string(), datafusion::sql::sqlparser::ast::Expr::Value(
+            datafusion::sql::sqlparser::ast::Value::SingleQuotedString(serde_json::to_string(&quic_config)?)
+        ));
     }
-    
+
     Ok(())
 }
 
 /// Parse gRPC-specific options
 fn parse_grpc_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Error> {
     let mut grpc_config = HashMap::new();
-    
+
     // Extract gRPC-specific options
     for key in options.keys().cloned().collect::<Vec<_>>() {
         if key.starts_with("grpc.") {
@@ -88,19 +93,21 @@ fn parse_grpc_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Erro
             }
         }
     }
-    
+
     // Add gRPC config to options if any options were found
     if !grpc_config.is_empty() {
-        options.insert("grpc_config".to_string(), serde_json::to_value(grpc_config)?);
+        options.options.insert("grpc_config".to_string(), datafusion::sql::sqlparser::ast::Expr::Value(
+            datafusion::sql::sqlparser::ast::Value::SingleQuotedString(serde_json::to_string(&grpc_config)?)
+        ));
     }
-    
+
     Ok(())
 }
 
 /// Parse WebSocket-specific options
 fn parse_websocket_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Error> {
     let mut websocket_config = HashMap::new();
-    
+
     // Extract WebSocket-specific options
     for key in options.keys().cloned().collect::<Vec<_>>() {
         if key.starts_with("ws.") {
@@ -111,46 +118,48 @@ fn parse_websocket_options(options: &mut ConnectorOptions) -> Result<(), anyhow:
             }
         }
     }
-    
+
     // Add WebSocket config to options if any options were found
     if !websocket_config.is_empty() {
-        options.insert("websocket_config".to_string(), serde_json::to_value(websocket_config)?);
+        options.options.insert("websocket_config".to_string(), datafusion::sql::sqlparser::ast::Expr::Value(
+            datafusion::sql::sqlparser::ast::Value::SingleQuotedString(serde_json::to_string(&websocket_config)?)
+        ));
     }
-    
+
     Ok(())
 }
 
 /// Validate protocol options
-pub fn validate_protocol_options(options: &ConnectorOptions) -> Result<(), anyhow::Error> {
+pub fn validate_protocol_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Error> {
     // Get protocol
-    let protocol = options
-        .get("protocol")
-        .and_then(|v| v.as_str())
-        .unwrap_or("http");
-    
+    let protocol = match options.pull_opt_str("protocol").map_err(|e| anyhow::anyhow!("{}", e))? {
+        Some(s) => s,
+        None => "http".to_string(),
+    };
+
     // Validate protocol-specific options
-    match protocol {
+    match protocol.as_str() {
         "http" => {
             // Check for required HTTP options
-            if options.get("topic").is_none() {
+            if options.pull_opt_str("topic").map_err(|e| anyhow::anyhow!("{}", e))?.is_none() {
                 return Err(anyhow::anyhow!("Missing required option: topic"));
             }
         }
         "quic" => {
             // Check for required QUIC options
-            if options.get("topic").is_none() {
+            if options.pull_opt_str("topic").map_err(|e| anyhow::anyhow!("{}", e))?.is_none() {
                 return Err(anyhow::anyhow!("Missing required option: topic"));
             }
         }
         "grpc" => {
             // Check for required gRPC options
-            if options.get("topic").is_none() {
+            if options.pull_opt_str("topic").map_err(|e| anyhow::anyhow!("{}", e))?.is_none() {
                 return Err(anyhow::anyhow!("Missing required option: topic"));
             }
         }
         "websocket" => {
             // Check for required WebSocket options
-            if options.get("topic").is_none() {
+            if options.pull_opt_str("topic").map_err(|e| anyhow::anyhow!("{}", e))?.is_none() {
                 return Err(anyhow::anyhow!("Missing required option: topic"));
             }
         }
@@ -161,6 +170,6 @@ pub fn validate_protocol_options(options: &ConnectorOptions) -> Result<(), anyho
             ));
         }
     }
-    
+
     Ok(())
 }

@@ -4,9 +4,9 @@ mod tests {
 
     use anyhow::Result;
     use arroyo_rpc::ConnectorOptions;
+    use datafusion::sql::sqlparser::ast::{Expr, Value};
     use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
     use datafusion::sql::sqlparser::parser::{Parser, ParserError};
-    use serde_json::json;
 
     use crate::push::sql;
 
@@ -78,10 +78,10 @@ mod tests {
     fn test_parse_protocol_options() -> Result<(), anyhow::Error> {
         // Create options with HTTP-specific options
         let mut options = ConnectorOptions::new();
-        options.insert("protocol".to_string(), json!("http"));
-        options.insert("topic".to_string(), json!("test_topic"));
-        options.insert("http.timeout".to_string(), json!("60"));
-        options.insert("http.max_connections".to_string(), json!("200"));
+        options.set_str("protocol", "http");
+        options.set_str("topic", "test_topic");
+        options.set_str("http.timeout", "60");
+        options.set_str("http.max_connections", "200");
 
         // Parse protocol options
         sql::parse_protocol_options(&mut options)?;
@@ -90,9 +90,8 @@ mod tests {
         assert!(options.contains_key("http_config"));
 
         // Check HTTP config values
-        let http_config = options.get("http_config").unwrap();
-        let http_config: HashMap<String, String> = serde_json::from_value(http_config.clone())?;
-
+        let http_config_str = options.get_str("http_config").unwrap();
+        let http_config: HashMap<String, String> = serde_json::from_str(&http_config_str)?;
         assert_eq!(http_config.get("timeout"), Some(&"60".to_string()));
         assert_eq!(http_config.get("max_connections"), Some(&"200".to_string()));
 
@@ -107,23 +106,26 @@ mod tests {
     fn test_parse_multiple_protocol_options() -> Result<(), anyhow::Error> {
         // Create options with multiple protocol options
         let mut options = ConnectorOptions::new();
-        options.insert("protocol".to_string(), json!("quic"));
-        options.insert("topic".to_string(), json!("test_topic"));
-        options.insert("quic.max_concurrent_streams".to_string(), json!("200"));
-        options.insert("quic.idle_timeout".to_string(), json!("60"));
+        options.options.insert("protocol".to_string(), Expr::Value(Value::SingleQuotedString("quic".to_string())));
+        options.options.insert("topic".to_string(), Expr::Value(Value::SingleQuotedString("test_topic".to_string())));
+        options.options.insert("quic.max_concurrent_streams".to_string(), Expr::Value(Value::SingleQuotedString("200".to_string())));
+        options.options.insert("quic.idle_timeout".to_string(), Expr::Value(Value::SingleQuotedString("60".to_string())));
 
         // Parse protocol options
         sql::parse_protocol_options(&mut options)?;
 
         // Check that QUIC config was extracted
-        assert!(options.contains_key("quic_config"));
+        assert!(options.options.contains_key("quic_config"));
 
         // Check QUIC config values
-        let quic_config = options.get("quic_config").unwrap();
-        let quic_config: HashMap<String, String> = serde_json::from_value(quic_config.clone())?;
-
-        assert_eq!(quic_config.get("max_concurrent_streams"), Some(&"200".to_string()));
-        assert_eq!(quic_config.get("idle_timeout"), Some(&"60".to_string()));
+        let quic_config_expr = options.options.get("quic_config").unwrap();
+        if let Expr::Value(Value::SingleQuotedString(s)) = quic_config_expr {
+            let quic_config: HashMap<String, String> = serde_json::from_str(s)?;
+            assert_eq!(quic_config.get("max_concurrent_streams"), Some(&"200".to_string()));
+            assert_eq!(quic_config.get("idle_timeout"), Some(&"60".to_string()));
+        } else {
+            panic!("Expected quic_config to be a string value");
+        }
 
         Ok(())
     }
@@ -132,23 +134,23 @@ mod tests {
     fn test_validate_protocol_options() -> Result<(), anyhow::Error> {
         // Create valid options
         let mut options = ConnectorOptions::new();
-        options.insert("protocol".to_string(), json!("http"));
-        options.insert("topic".to_string(), json!("test_topic"));
+        options.options.insert("protocol".to_string(), Expr::Value(Value::SingleQuotedString("http".to_string())));
+        options.options.insert("topic".to_string(), Expr::Value(Value::SingleQuotedString("test_topic".to_string())));
 
         // Validate options
         assert!(sql::validate_protocol_options(&options).is_ok());
 
         // Create invalid options (missing topic)
         let mut invalid_options = ConnectorOptions::new();
-        invalid_options.insert("protocol".to_string(), json!("http"));
+        invalid_options.options.insert("protocol".to_string(), Expr::Value(Value::SingleQuotedString("http".to_string())));
 
         // Validate options
         assert!(sql::validate_protocol_options(&invalid_options).is_err());
 
         // Create invalid options (invalid protocol)
         let mut invalid_protocol = ConnectorOptions::new();
-        invalid_protocol.insert("protocol".to_string(), json!("invalid"));
-        invalid_protocol.insert("topic".to_string(), json!("test_topic"));
+        invalid_protocol.options.insert("protocol".to_string(), Expr::Value(Value::SingleQuotedString("invalid".to_string())));
+        invalid_protocol.options.insert("topic".to_string(), Expr::Value(Value::SingleQuotedString("test_topic".to_string())));
 
         // Validate options
         assert!(sql::validate_protocol_options(&invalid_protocol).is_err());
