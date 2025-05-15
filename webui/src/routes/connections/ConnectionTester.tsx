@@ -22,6 +22,7 @@ import {
   StackDivider,
   Text,
   useDisclosure,
+  useToast,
 } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -32,6 +33,9 @@ import {
   useConnectionTableTest,
 } from '../../lib/data_fetching';
 import { formatError } from '../../lib/util';
+import { useError, ErrorDisplay } from '../../contexts/ErrorContext';
+import { validatePushTableConfig } from '../../utils/validation';
+import { PushTableConfig } from '../../types/push';
 
 export function ConnectionTester({
   connector,
@@ -47,8 +51,10 @@ export function ConnectionTester({
   const { isOpen, onOpen, onClose } = useDisclosure();
   const cancelRef = useRef<any>();
   const [touched, setTouched] = useState<boolean>(false);
-  const [error, setError] = useState<{ title: string; body: string } | null>(null);
+  const [localError, setLocalError] = useState<{ title: string; body: string } | null>(null);
   const navigate = useNavigate();
+  const { addValidationError, addServerError, clearError } = useError();
+  const toast = useToast();
 
   const done = messages.length > 0 && messages[messages?.length - 1].done;
   const errored = messages.find(m => m.error) != null;
@@ -80,45 +86,102 @@ export function ConnectionTester({
 
   const onClickTest = async () => {
     if (!testing) {
+      clearError();
+
       // 检查是否有 connectionProfileId，特别是对于 Push Connector
       if (!connectionProfileId && connector.id === 'push') {
-        setError({
-          title: 'Connection profile required',
-          body: 'This connector requires a connection profile, but none was specified. Please go back to the first step and select or create a connection profile.'
-        });
+        addValidationError('Connection profile required', [
+          'This connector requires a connection profile, but none was specified.',
+          'Please go back to the first step and select or create a connection profile.'
+        ]);
         return;
       }
 
+      // 验证表单
+      if (connector.id === 'push') {
+        const validation = validatePushTableConfig(state.table as PushTableConfig);
+        if (!validation.valid) {
+          addValidationError('Please fix the following errors:', validation.errors);
+          return;
+        }
+      }
+
       setTesting(true);
-      setError(null);
+      setLocalError(null);
 
       let messages: Array<TestSourceMessage> = [];
       setMessages(messages);
 
-      await useConnectionTableTest(event => {
-        messages = [...messages, event];
-        setMessages(messages);
-      }, createRequest);
-      setTesting(false);
+      try {
+        await useConnectionTableTest(event => {
+          messages = [...messages, event];
+          setMessages(messages);
+
+          // 如果有错误，显示错误消息
+          if (event.error) {
+            addServerError('Connection test failed', [event.message]);
+          }
+
+          // 如果测试完成且成功，显示成功消息
+          if (event.done && !event.error) {
+            toast({
+              title: 'Connection test successful',
+              description: 'Your connection has been successfully tested.',
+              status: 'success',
+              duration: 3000,
+              isClosable: true,
+            });
+          }
+        }, createRequest);
+      } catch (error) {
+        console.error('Connection test error:', error);
+        addServerError('Connection test failed', [error instanceof Error ? error.message : String(error)]);
+      } finally {
+        setTesting(false);
+      }
     }
   };
 
   const submit = async () => {
+    clearError();
+
     // 检查是否有 connectionProfileId，特别是对于 Push Connector
     if (!connectionProfileId && connector.id === 'push') {
-      setError({
-        title: 'Connection profile required',
-        body: 'This connector requires a connection profile, but none was specified. Please go back to the first step and select or create a connection profile.'
-      });
+      addValidationError('Connection profile required', [
+        'This connector requires a connection profile, but none was specified.',
+        'Please go back to the first step and select or create a connection profile.'
+      ]);
       return;
     }
 
-    setError(null);
-    const { error } = await post('/v1/connection_tables', { body: createRequest });
-    if (error) {
-      setError({ title: 'Failed to create connection', body: formatError(error) });
-    } else {
-      navigate('/connections');
+    // 验证表单
+    if (connector.id === 'push') {
+      const validation = validatePushTableConfig(state.table as PushTableConfig);
+      if (!validation.valid) {
+        addValidationError('Please fix the following errors:', validation.errors);
+        return;
+      }
+    }
+
+    setLocalError(null);
+
+    try {
+      const { error } = await post('/v1/connection_tables', { body: createRequest });
+      if (error) {
+        addServerError('Failed to create connection', [formatError(error)]);
+      } else {
+        toast({
+          title: 'Connection created',
+          description: 'Your connection has been successfully created.',
+          status: 'success',
+          duration: 3000,
+          isClosable: true,
+        });
+        navigate('/connections');
+      }
+    } catch (error) {
+      console.error('Connection creation error:', error);
+      addServerError('Failed to create connection', [error instanceof Error ? error.message : String(error)]);
     }
   };
 
@@ -155,13 +218,16 @@ export function ConnectionTester({
 
   return (
     <>
-      {error && (
-        <Alert status="error">
+      <ErrorDisplay />
+
+      {localError && (
+        <Alert status="error" mb={4}>
           <AlertIcon />
-          <AlertTitle>{error.title}</AlertTitle>
-          <AlertDescription>{error.body}</AlertDescription>
+          <AlertTitle>{localError.title}</AlertTitle>
+          <AlertDescription>{localError.body}</AlertDescription>
         </Alert>
       )}
+
       <Stack spacing={8} maxW={'md'}>
         <FormControl isInvalid={touched && (state.name === '' || !isValidSQLTableName(state.name))}>
           <FormLabel>Connection Name</FormLabel>
@@ -197,7 +263,7 @@ export function ConnectionTester({
         <Text>Before creating the connection, we can validate that it is configured properly.</Text>
 
         <Button
-          variant="primary"
+          colorScheme="blue"
           isDisabled={testing || state.name === '' || !isValidSQLTableName(state.name)}
           onClick={onClickTest}
         >
@@ -215,6 +281,12 @@ export function ConnectionTester({
         {done && (
           <Button colorScheme={errored ? 'red' : 'green'} onClick={onClickContinue}>
             Create
+          </Button>
+        )}
+
+        {!done && !testing && state.name && isValidSQLTableName(state.name) && (
+          <Button colorScheme="green" mt={4} onClick={submit}>
+            Skip Test and Create
           </Button>
         )}
 

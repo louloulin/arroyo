@@ -60,7 +60,8 @@
     "react-test-renderer": "^18.3.1",
     "reactflow": "^11.11.4",
     "swr": "2.3.3",
-    "use-local-storage": "^3.0.0"
+    "use-local-storage": "^3.0.0",
+    "zod": "^3.24.4"
   },
   "devDependencies": {
     "@chakra-ui/cli": "^2.5.8",

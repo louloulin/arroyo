@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
-  FormControl,
-  FormLabel,
-  Input,
-  Select,
   Stack,
   Text,
+  useToast,
+  FormControl,
+  FormLabel,
   FormHelperText,
+  Input,
+  Select,
   NumberInput,
   NumberInputField,
   NumberInputStepper,
@@ -17,6 +18,9 @@ import {
 } from '@chakra-ui/react';
 import { Connector } from '../../../lib/data_fetching';
 import { CreateConnectionState } from '../CreateConnection';
+import { PushTableConfig, Protocol } from '../../../types/push';
+import { validatePushTableConfig } from '../../../utils/validation';
+import { useError, ErrorDisplay } from '../../../contexts/ErrorContext';
 
 interface PushConnectionFormProps {
   connector: Connector;
@@ -31,6 +35,9 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
   setState,
   onSubmit,
 }) => {
+  const { addValidationError, clearError } = useError();
+  const toast = useToast();
+
   // 初始化 state.table 如果它不存在
   useEffect(() => {
     if (!state.table) {
@@ -43,7 +50,7 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
             timeout: '30',
             max_connections: '100'
           }
-        }
+        } as PushTableConfig
       });
     }
   }, [state, setState]);
@@ -59,117 +66,143 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
       ...state,
       table: {
         ...state.table,
-        protocol: newProtocol,
-      },
+        protocol: newProtocol as Protocol,
+      } as PushTableConfig,
     });
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // 验证表单
+    const validation = validatePushTableConfig(state.table);
+    if (!validation.valid) {
+      addValidationError('Please fix the following errors:', validation.errors);
+      return;
+    }
+
+    clearError();
+    toast({
+      title: 'Configuration saved',
+      description: 'Your push connection configuration has been saved.',
+      status: 'success',
+      duration: 3000,
+      isClosable: true,
+    });
+
+    onSubmit();
+  };
+
   return (
-    <Stack spacing={6}>
-      <FormControl isRequired>
-        <FormLabel>Topic Name</FormLabel>
-        <Input
-          placeholder="my-topic"
-          value={state.table?.topic || ''}
-          onChange={(e) => {
-            setState({
-              ...state,
-              table: {
-                ...state.table,
-                topic: e.target.value,
-              },
-            });
-          }}
-        />
-        <FormHelperText>
-          The topic name for the push connector. This will be used in the URL path.
-        </FormHelperText>
-      </FormControl>
+    <Box as="form" onSubmit={handleSubmit}>
+      <Stack spacing={6}>
+        <ErrorDisplay />
 
-      <FormControl isRequired>
-        <FormLabel>Protocol</FormLabel>
-        <Select value={protocol} onChange={handleProtocolChange}>
-          <option value="http">HTTP</option>
-          <option value="grpc">gRPC</option>
-          <option value="websocket">WebSocket</option>
-          <option value="quic">QUIC</option>
-        </Select>
-        <FormHelperText>
-          The protocol used for receiving data from external systems.
-        </FormHelperText>
-      </FormControl>
+        <FormControl isRequired>
+          <FormLabel>Topic Name</FormLabel>
+          <Input
+            placeholder="my-topic"
+            value={state.table?.topic || ''}
+            onChange={(e) => {
+              setState({
+                ...state,
+                table: {
+                  ...state.table,
+                  topic: e.target.value,
+                } as PushTableConfig,
+              });
+            }}
+          />
+          <FormHelperText>
+            The topic name for the push connector. This will be used in the URL path.
+          </FormHelperText>
+        </FormControl>
 
-      {protocol === 'http' && (
-        <Box p={4} borderWidth="1px" borderRadius="md">
-          <Text fontWeight="bold" mb={4}>HTTP Configuration</Text>
-          <Stack spacing={4}>
-            <FormControl>
-              <FormLabel>Timeout (seconds)</FormLabel>
-              <NumberInput
-                defaultValue="30"
-                min={1}
-                max={300}
-                value={state.table?.http_config?.timeout || '30'}
-                onChange={(valueString) => {
-                  setState({
-                    ...state,
-                    table: {
-                      ...state.table,
-                      http_config: {
-                        ...state.table?.http_config,
-                        timeout: valueString, // 保持为字符串类型
-                      },
-                    },
-                  });
-                }}
-              >
-                <NumberInputField />
-                <NumberInputStepper>
-                  <NumberIncrementStepper />
-                  <NumberDecrementStepper />
-                </NumberInputStepper>
-              </NumberInput>
-              <FormHelperText>Request timeout in seconds</FormHelperText>
-            </FormControl>
+        <FormControl isRequired>
+          <FormLabel>Protocol</FormLabel>
+          <Select value={protocol} onChange={handleProtocolChange}>
+            <option value="http">HTTP</option>
+            <option value="grpc">gRPC</option>
+            <option value="websocket">WebSocket</option>
+            <option value="quic">QUIC</option>
+          </Select>
+          <FormHelperText>
+            The protocol used for receiving data from external systems.
+          </FormHelperText>
+        </FormControl>
 
-            <FormControl>
-              <FormLabel>Max Connections</FormLabel>
-              <NumberInput
-                defaultValue="100"
-                min={10}
-                max={10000}
-                value={state.table?.http_config?.max_connections || '100'}
-                onChange={(valueString) => {
-                  setState({
-                    ...state,
-                    table: {
-                      ...state.table,
-                      http_config: {
-                        ...state.table?.http_config,
-                        max_connections: valueString, // 保持为字符串类型
-                      },
-                    },
-                  });
-                }}
-              >
-                <NumberInputField />
-                <NumberInputStepper>
-                  <NumberIncrementStepper />
-                  <NumberDecrementStepper />
-                </NumberInputStepper>
-              </NumberInput>
-              <FormHelperText>Maximum number of concurrent connections</FormHelperText>
-            </FormControl>
-          </Stack>
-        </Box>
-      )}
+        {protocol === 'http' && (
+          <Box p={4} borderWidth="1px" borderRadius="md">
+            <Text fontWeight="bold" mb={4}>HTTP Configuration</Text>
+            <Stack spacing={4}>
+              <FormControl>
+                <FormLabel>Timeout (seconds)</FormLabel>
+                <NumberInput
+                  defaultValue="30"
+                  min={1}
+                  max={300}
+                  value={state.table?.http_config?.timeout || '30'}
+                  onChange={(valueString: string) => {
+                    setState({
+                      ...state,
+                      table: {
+                        ...state.table,
+                        http_config: {
+                          ...state.table?.http_config,
+                          timeout: valueString,
+                        },
+                      } as PushTableConfig,
+                    });
+                  }}
+                >
+                  <NumberInputField />
+                  <NumberInputStepper>
+                    <NumberIncrementStepper />
+                    <NumberDecrementStepper />
+                  </NumberInputStepper>
+                </NumberInput>
+                <FormHelperText>Request timeout in seconds</FormHelperText>
+              </FormControl>
 
-      {/* 其他协议的配置选项可以在这里添加 */}
+              <FormControl>
+                <FormLabel>Max Connections</FormLabel>
+                <NumberInput
+                  defaultValue="100"
+                  min={10}
+                  max={10000}
+                  value={state.table?.http_config?.max_connections || '100'}
+                  onChange={(valueString: string) => {
+                    setState({
+                      ...state,
+                      table: {
+                        ...state.table,
+                        http_config: {
+                          ...state.table?.http_config,
+                          max_connections: valueString,
+                        },
+                      } as PushTableConfig,
+                    });
+                  }}
+                >
+                  <NumberInputField />
+                  <NumberInputStepper>
+                    <NumberIncrementStepper />
+                    <NumberDecrementStepper />
+                  </NumberInputStepper>
+                </NumberInput>
+                <FormHelperText>Maximum number of concurrent connections</FormHelperText>
+              </FormControl>
+            </Stack>
+          </Box>
+        )}
 
-      <Button colorScheme="blue" onClick={onSubmit}>
-        Next
-      </Button>
-    </Stack>
+        {/* 其他协议的配置选项可以在这里添加 */}
+
+        <Button type="submit" colorScheme="blue">
+          Continue
+        </Button>
+      </Stack>
+    </Box>
   );
 };
 

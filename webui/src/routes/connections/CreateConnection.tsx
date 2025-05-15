@@ -27,10 +27,12 @@ import { ConnectionTester } from './ConnectionTester';
 import { ConfigureProfile } from './ConfigureProfile';
 import { useNavbar } from '../../App';
 
+import { PushTableConfig } from '../../types/push';
+
 export type CreateConnectionState = {
   name: string | undefined;
   connectionProfileId: string | null;
-  table: any;
+  table: PushTableConfig | any; // 使用 PushTableConfig 类型，但也允许其他类型
   schema: ConnectionSchema | null;
 };
 

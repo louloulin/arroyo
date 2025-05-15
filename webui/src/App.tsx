@@ -26,6 +26,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from '@chakra-ui/icons';
 import { motion } from 'framer-motion';
 import useLocalStorage from 'use-local-storage';
 import { IconType } from 'react-icons';
+import { ErrorProvider } from './contexts/ErrorContext';
 
 function logout() {
   // TODO: also send a request to the server to delete the session
@@ -203,16 +204,18 @@ function App() {
   return (
     <TourContext.Provider value={tourContextValue}>
       <LocalUdfsContext.Provider value={localUdfsContextValue}>
-        <NavbarProvider>
-          <Grid
-            templateAreas={'"nav main"'}
-            gridTemplateColumns={`${collapsed ? '80px' : '175px'}`}
-            h="100vh"
-          >
-            <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
-            {content}
-          </Grid>
-        </NavbarProvider>
+        <ErrorProvider>
+          <NavbarProvider>
+            <Grid
+              templateAreas={'"nav main"'}
+              gridTemplateColumns={`${collapsed ? '80px' : '175px'}`}
+              h="100vh"
+            >
+              <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
+              {content}
+            </Grid>
+          </NavbarProvider>
+        </ErrorProvider>
       </LocalUdfsContext.Provider>
     </TourContext.Provider>
   );
