@@ -40,8 +40,8 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
           protocol: 'http',
           topic: '',
           http_config: {
-            timeout: 30,
-            max_connections: 100
+            timeout: '30',
+            max_connections: '100'
           }
         }
       });
@@ -106,10 +106,10 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
             <FormControl>
               <FormLabel>Timeout (seconds)</FormLabel>
               <NumberInput
-                defaultValue={30}
+                defaultValue="30"
                 min={1}
                 max={300}
-                value={state.table?.http_config?.timeout || 30}
+                value={state.table?.http_config?.timeout || '30'}
                 onChange={(valueString) => {
                   setState({
                     ...state,
@@ -117,7 +117,7 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
                       ...state.table,
                       http_config: {
                         ...state.table?.http_config,
-                        timeout: parseInt(valueString),
+                        timeout: valueString, // 保持为字符串类型
                       },
                     },
                   });
@@ -135,10 +135,10 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
             <FormControl>
               <FormLabel>Max Connections</FormLabel>
               <NumberInput
-                defaultValue={100}
+                defaultValue="100"
                 min={10}
                 max={10000}
-                value={state.table?.http_config?.max_connections || 100}
+                value={state.table?.http_config?.max_connections || '100'}
                 onChange={(valueString) => {
                   setState({
                     ...state,
@@ -146,7 +146,7 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
                       ...state.table,
                       http_config: {
                         ...state.table?.http_config,
-                        max_connections: parseInt(valueString),
+                        max_connections: valueString, // 保持为字符串类型
                       },
                     },
                   });

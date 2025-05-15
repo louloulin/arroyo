@@ -511,6 +511,33 @@ export const DefineSchema = ({
       </FormControl>
 
       {formats.find(f => f.value === selectedFormat)?.el}
+
+      {/* 添加继续按钮，即使没有选择格式也可以继续 */}
+      {!formats.find(f => f.value === selectedFormat)?.el && (
+        <Button
+          colorScheme="blue"
+          mt={4}
+          onClick={() => {
+            console.log("Continue button clicked in DefineSchema");
+            // 如果没有选择格式，设置一个默认格式
+            if (!selectedFormat) {
+              setState({
+                ...state,
+                schema: {
+                  ...state.schema,
+                  format: { json: { unstructured: false, confluentSchemaRegistry: false } },
+                  inferred: true,
+                  fields: [],
+                  definition: null
+                }
+              });
+            }
+            next();
+          }}
+        >
+          Continue to Next Step
+        </Button>
+      )}
     </Stack>
   );
 };

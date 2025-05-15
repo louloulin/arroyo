@@ -73,6 +73,7 @@ export const ConnectionCreator = ({ connector }: { connector: Connector }) => {
           state={state}
           setState={setState}
           onSubmit={() => {
+            console.log("ConfigureProfile onSubmit called, moving to step:", next);
             setActiveStep(next);
           }}
         />

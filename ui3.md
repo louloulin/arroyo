@@ -285,7 +285,10 @@ if (connector.id === 'push') {
    - ✅ 增强错误处理，在测试和创建连接前检查 connectionProfileId
    - ✅ 移除调试按钮，优化用户界面
    - ✅ 修复 topic 重复配置问题，确保 state.table 正确初始化
-   - ✅ 将 "Validate" 按钮改为 "Continue" 按钮，简化用户操作流程
+   - ✅ 添加 "Continue to Next Step" 按钮，绕过表单验证直接跳转到下一步
+   - ✅ 修复 "Invalid config: Error("missing field `type`")" 错误，确保 authentication 对象包含必需的 type 字段
+   - ✅ 在 DefineSchema 页面添加继续按钮，允许用户在不选择数据格式的情况下继续
+   - ✅ 修复 "Failed to parse config: Error("invalid type: number, expected a string")" 错误，确保 buffer_size、max_batch_size 和 HTTP 配置中的数值是字符串类型
 
 3. ⚠️ 添加更多功能
    - ✅ 监控功能

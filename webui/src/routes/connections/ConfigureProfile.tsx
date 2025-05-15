@@ -284,7 +284,9 @@ export const ConfigureProfile = ({
             mutateConnectionProfiles();
           }}
           next={id => {
+            console.log("CreateProfile next called with ID:", id);
             setState({ ...state, connectionProfileId: id });
+            console.log("State updated with connectionProfileId:", id);
             onSubmit();
           }}
         />
