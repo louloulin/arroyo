@@ -516,144 +516,6 @@ export const usePipeline = (pipelineId?: string, refresh: boolean = false) => {
     options
   );
 
-// Push Connector API Functions
-
-// Fetch push topics
-const pushTopicsFetcher = () => {
-  return async (params: { key: string; connectionId: string }) => {
-    try {
-      // 使用 fetch 直接调用 API，因为这个 API 路径不在 OpenAPI 规范中
-      const response = await fetch(`/api/v1/push/topics?connectionId=${params.connectionId}`);
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch push topics: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data as PushTopic[];
-    } catch (err) {
-      console.error('Failed to fetch push topics:', err);
-      throw err;
-    }
-  };
-};
-
-export const usePushTopics = (connectionId: string) => {
-  const { data, error, isLoading, mutate } = useSWR<PushTopic[]>(
-    pushTopicsKey(connectionId),
-    pushTopicsFetcher(),
-    {
-      refreshInterval: 10000,
-    }
-  );
-
-  return {
-    topics: data,
-    topicsLoading: isLoading,
-    topicsError: error,
-    mutateTopics: mutate,
-  };
-};
-
-// Fetch push topic details
-const pushTopicDetailsFetcher = () => {
-  return async (params: { key: string; connectionId: string; topicName: string }) => {
-    try {
-      // 使用 fetch 直接调用 API，因为这个 API 路径不在 OpenAPI 规范中
-      const response = await fetch(`/api/v1/push/topics/${params.topicName}`);
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch topic details: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data as PushTopic;
-    } catch (err) {
-      console.error('Failed to fetch topic details:', err);
-      throw err;
-    }
-  };
-};
-
-export const usePushTopicDetails = (connectionId: string, topicName: string) => {
-  const { data, error, isLoading } = useSWR<PushTopic>(
-    pushTopicDetailsKey(connectionId, topicName),
-    pushTopicDetailsFetcher(),
-    {
-      refreshInterval: 5000,
-    }
-  );
-
-  return {
-    topicDetails: data,
-    topicDetailsLoading: isLoading,
-    topicDetailsError: error,
-  };
-};
-
-// Create push topic
-export const createPushTopic = async (
-  connectionId: string,
-  topicName: string,
-  options?: {
-    retention_period?: number;
-    compression?: boolean;
-  }
-) => {
-  try {
-    // 使用 fetch 直接调用 API，因为这个 API 路径不在 OpenAPI 规范中
-    const response = await fetch('/api/v1/push/topics', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: topicName,
-        retention_period: options?.retention_period || 7 * 24 * 60 * 60, // 默认 7 天
-        compression: options?.compression || false,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to create topic: ${errorText}`);
-    }
-
-    // 成功创建主题后，刷新主题列表
-    const key = pushTopicsKey(connectionId);
-    globalMutate(key);
-
-    return { success: true };
-  } catch (err) {
-    console.error('Failed to create topic:', err);
-    throw err;
-  }
-};
-
-// Delete push topic
-export const deletePushTopic = async (connectionId: string, topicName: string) => {
-  try {
-    // 使用 fetch 直接调用 API，因为这个 API 路径不在 OpenAPI 规范中
-    const response = await fetch(`/api/v1/push/topics/${topicName}`, {
-      method: 'DELETE',
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to delete topic: ${errorText}`);
-    }
-
-    // 成功删除主题后，刷新主题列表
-    const key = pushTopicsKey(connectionId);
-    globalMutate(key);
-
-    return { success: true };
-  } catch (err) {
-    console.error('Failed to delete topic:', err);
-    throw err;
-  }
-};
-
   const updatePipeline = async (params: { stop?: StopType; parallelism?: number }) => {
     if (!pipelineId) {
       return;
@@ -870,3 +732,141 @@ export const useGlobalUdfs = () => {
     deleteGlobalUdf,
   };
 };
+
+// Push Connector API Functions
+
+// Fetch push topics
+const pushTopicsFetcher = () => {
+  return async (params: { key: string; connectionId: string }) => {
+    try {
+      // 使用 fetch 直接调用 API，因为这个 API 路径不在 OpenAPI 规范中
+      const response = await fetch(`/api/v1/push/topics?connectionId=${params.connectionId}`);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch push topics: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data as PushTopic[];
+    } catch (err) {
+      console.error('Failed to fetch push topics:', err);
+      throw err;
+    }
+  };
+};
+
+export function usePushTopics(connectionId: string) {
+  const { data, error, isLoading, mutate } = useSWR<PushTopic[]>(
+    pushTopicsKey(connectionId),
+    pushTopicsFetcher(),
+    {
+      refreshInterval: 10000,
+    }
+  );
+
+  return {
+    topics: data,
+    topicsLoading: isLoading,
+    topicsError: error,
+    mutateTopics: mutate,
+  };
+}
+
+// Fetch push topic details
+const pushTopicDetailsFetcher = () => {
+  return async (params: { key: string; connectionId: string; topicName: string }) => {
+    try {
+      // 使用 fetch 直接调用 API，因为这个 API 路径不在 OpenAPI 规范中
+      const response = await fetch(`/api/v1/push/topics/${params.topicName}`);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch topic details: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data as PushTopic;
+    } catch (err) {
+      console.error('Failed to fetch topic details:', err);
+      throw err;
+    }
+  };
+};
+
+export function usePushTopicDetails(connectionId: string, topicName: string) {
+  const { data, error, isLoading } = useSWR<PushTopic>(
+    pushTopicDetailsKey(connectionId, topicName),
+    pushTopicDetailsFetcher(),
+    {
+      refreshInterval: 5000,
+    }
+  );
+
+  return {
+    topicDetails: data,
+    topicDetailsLoading: isLoading,
+    topicDetailsError: error,
+  };
+}
+
+// Create push topic
+export async function createPushTopic(
+  connectionId: string,
+  topicName: string,
+  options?: {
+    retention_period?: number;
+    compression?: boolean;
+  }
+) {
+  try {
+    // 使用 fetch 直接调用 API，因为这个 API 路径不在 OpenAPI 规范中
+    const response = await fetch('/api/v1/push/topics', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: topicName,
+        retention_period: options?.retention_period || 7 * 24 * 60 * 60, // 默认 7 天
+        compression: options?.compression || false,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to create topic: ${errorText}`);
+    }
+
+    // 成功创建主题后，刷新主题列表
+    const key = pushTopicsKey(connectionId);
+    globalMutate(key);
+
+    return { success: true };
+  } catch (err) {
+    console.error('Failed to create topic:', err);
+    throw err;
+  }
+}
+
+// Delete push topic
+export async function deletePushTopic(connectionId: string, topicName: string) {
+  try {
+    // 使用 fetch 直接调用 API，因为这个 API 路径不在 OpenAPI 规范中
+    const response = await fetch(`/api/v1/push/topics/${topicName}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to delete topic: ${errorText}`);
+    }
+
+    // 成功删除主题后，刷新主题列表
+    const key = pushTopicsKey(connectionId);
+    globalMutate(key);
+
+    return { success: true };
+  } catch (err) {
+    console.error('Failed to delete topic:', err);
+    throw err;
+  }
+}

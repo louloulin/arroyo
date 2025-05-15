@@ -30,40 +30,41 @@ export const PushConnectionDetails: React.FC = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
-  
+
   // 获取连接表信息
   const { connectionTablePages, connectionTablesLoading } = useConnectionTables(100);
-  
+
   // 查找当前连接
   const connection = connectionTablePages?.flatMap(page => page.data).find(
     table => table.id === connectionId
   );
-  
+
   // 如果连接不存在，重定向到连接列表页面
   useEffect(() => {
     if (!connectionTablesLoading && !connection) {
       navigate('/connections');
     }
   }, [connection, connectionTablesLoading, navigate]);
-  
+
   // 从连接配置中提取协议、主题、主机和端口信息
-  const protocol = connection?.table?.protocol || 'http';
-  const topic = connection?.table?.topic || '';
+  const config = connection?.config as any;
+  const protocol = config?.protocol || 'http';
+  const topic = config?.topic || '';
   const host = window.location.hostname;
   const port = 8000; // 默认端口，实际应从配置中获取
-  
+
   // 处理主题选择
   const handleTopicSelect = (topicName: string) => {
     setSelectedTopic(topicName);
     setActiveTab(1); // 切换到主题详情标签
   };
-  
+
   // 处理返回到主题列表
   const handleBackToTopics = () => {
     setSelectedTopic(null);
     setActiveTab(0); // 切换回主题列表标签
   };
-  
+
   if (connectionTablesLoading) {
     return (
       <Flex justifyContent="center" alignItems="center" height="200px">
@@ -71,7 +72,7 @@ export const PushConnectionDetails: React.FC = () => {
       </Flex>
     );
   }
-  
+
   if (!connection) {
     return (
       <Alert status="error">
@@ -80,13 +81,13 @@ export const PushConnectionDetails: React.FC = () => {
       </Alert>
     );
   }
-  
+
   return (
     <Container maxW="container.xl" py={8}>
       <Stack spacing={6}>
         <Heading size="lg">{connection.name}</Heading>
         <Text color="gray.500">Push Connector - {protocol.toUpperCase()}</Text>
-        
+
         <Tabs index={activeTab} onChange={setActiveTab} variant="enclosed">
           <TabList>
             <Tab>Topics</Tab>
@@ -94,16 +95,16 @@ export const PushConnectionDetails: React.FC = () => {
             <Tab>Configuration</Tab>
             <Tab>Documentation</Tab>
           </TabList>
-          
+
           <TabPanels>
             <TabPanel>
-              <PushTopicManager 
-                connectionId={connectionId || ''} 
+              <PushTopicManager
+                connectionId={connectionId || ''}
                 onViewDetails={handleTopicSelect}
                 onCreateTopic={onOpen}
               />
             </TabPanel>
-            
+
             {selectedTopic && (
               <TabPanel>
                 <TopicDetails
@@ -116,7 +117,7 @@ export const PushConnectionDetails: React.FC = () => {
                 />
               </TabPanel>
             )}
-            
+
             <TabPanel>
               <PushConnectionConfig
                 connectionId={connectionId || ''}
@@ -127,14 +128,14 @@ export const PushConnectionDetails: React.FC = () => {
                 port={port}
               />
             </TabPanel>
-            
+
             <TabPanel>
               <PushConnectorDocs />
             </TabPanel>
           </TabPanels>
         </Tabs>
       </Stack>
-      
+
       {/* 创建主题对话框 */}
       <CreateTopic
         isOpen={isOpen}
