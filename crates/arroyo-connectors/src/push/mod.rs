@@ -16,8 +16,10 @@ pub mod auth;
 pub mod backpressure;
 pub mod batch;
 pub mod buffer;
+pub mod converter;
 pub mod http;
 pub mod source;
+pub mod sql;
 
 #[cfg(test)]
 mod tests;
@@ -34,6 +36,12 @@ mod backpressure_tests;
 #[cfg(test)]
 mod batch_tests;
 
+#[cfg(test)]
+mod converter_tests;
+
+#[cfg(test)]
+mod sql_tests;
+
 const CONFIG_SCHEMA: &str = include_str!("./profile.json");
 const TABLE_SCHEMA: &str = include_str!("./table.json");
 const ICON: &str = include_str!("./push.svg");
@@ -45,6 +53,20 @@ import_types!(
         {type = "string", format = "var-str"} = VarStr
     }
 );
+
+// Define PushTable struct manually
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushTable {
+    pub topic: String,
+    pub protocol: String,
+    pub retention_period: Option<u64>,
+    pub http_config: Option<HashMap<String, String>>,
+    pub quic_config: Option<HashMap<String, String>>,
+    pub grpc_config: Option<HashMap<String, String>>,
+    pub websocket_config: Option<HashMap<String, String>>,
+    pub compression: Option<String>,
+    pub batch_size: Option<u64>,
+}
 
 /// Push connector for receiving data pushed from external systems
 pub struct PushConnector {}
@@ -101,8 +123,51 @@ impl Connector for PushConnector {
         schema: Option<&ConnectionSchema>,
         profile: Option<&ConnectionProfile>,
     ) -> anyhow::Result<Connection> {
-        // TODO: Implement from_options
-        unimplemented!("from_options not implemented for push connector")
+        // Parse protocol-specific options
+        sql::parse_protocol_options(options)?;
+
+        // Validate options
+        sql::validate_protocol_options(options)?;
+
+        let topic = options
+            .pull_opt_str("topic")?
+            .ok_or_else(|| anyhow::anyhow!("topic is required"))?;
+
+        let table = PushTable {
+            topic,
+            protocol: options
+                .pull_opt_str("protocol")?
+                .unwrap_or_else(|| "http".to_string()),
+            retention_period: options.pull_opt_u64("retention_period")?,
+            http_config: options.get("http_config").and_then(|v| {
+                serde_json::from_value::<HashMap<String, String>>(v.clone()).ok()
+            }),
+            quic_config: options.get("quic_config").and_then(|v| {
+                serde_json::from_value::<HashMap<String, String>>(v.clone()).ok()
+            }),
+            grpc_config: options.get("grpc_config").and_then(|v| {
+                serde_json::from_value::<HashMap<String, String>>(v.clone()).ok()
+            }),
+            websocket_config: options.get("websocket_config").and_then(|v| {
+                serde_json::from_value::<HashMap<String, String>>(v.clone()).ok()
+            }),
+            compression: options.pull_opt_str("compression")?,
+            batch_size: options.pull_opt_u64("batch_size")?,
+        };
+
+        let config = if let Some(profile) = profile {
+            serde_json::from_value(profile.config.clone()).map_err(|e| {
+                anyhow::anyhow!("Failed to parse connection profile: {}", e)
+            })?
+        } else {
+            PushConfig {
+                buffer_size: options.pull_opt_u64("buffer_size")?.map(|v| v as usize),
+                max_batch_size: options.pull_opt_u64("max_batch_size")?.map(|v| v as usize),
+                authentication: None,
+            }
+        };
+
+        self.from_config(None, name, config, table, schema)
     }
 
     fn from_config(

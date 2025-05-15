@@ -229,6 +229,175 @@ if let Some(batch) = processor.add(message) {
 controller.release(message.data.len());
 ```
 
+## 源操作符
+
+源操作符是主动推送连接器的核心组件，负责接收外部系统推送的数据，并将其转换为 Arroyo 内部格式进行处理。
+
+### PushSourceFunc 结构体
+
+`PushSourceFunc` 结构体实现了 `SourceOperator` trait，提供以下功能：
+
+- **协议服务器管理**：启动和停止相应的协议服务器（HTTP、QUIC、gRPC、WebSocket）
+- **消息接收**：接收外部系统推送的消息
+- **状态管理**：维护源操作符的状态，如接收的消息数量、字节数等
+- **检查点处理**：支持状态的保存和恢复
+- **控制消息处理**：处理停止、检查点等控制消息
+
+### 数据转换为 Arrow 格式
+
+数据转换使用 `PushMessageConverter` 结构体实现，它提供以下功能：
+
+- **Schema 转换**：将连接器 Schema 转换为 Arrow Schema
+- **消息转换**：将接收到的消息转换为 Arrow RecordBatch
+- **字段映射**：支持字段名称和类型的映射
+- **自动添加字段**：自动添加时间戳和主题字段（如果不存在）
+- **类型转换**：支持多种数据类型的转换
+
+### 使用示例
+
+```rust
+// 创建源操作符
+let source_func = PushSourceFunc::new_operator(
+    config,
+    table,
+    operator_config,
+)?;
+
+// 运行源操作符
+let finish_type = source_func.run(ctx, collector).await;
+```
+
+### 数据流程
+
+1. 外部系统通过 HTTP、QUIC、gRPC 或 WebSocket 协议推送数据
+2. 协议服务器接收数据并发送到内部通道
+3. 内部任务将数据放入内存缓冲区
+4. 主循环从缓冲区获取数据
+5. 数据转换器将数据转换为 Arrow 格式
+6. 数据被发送到下游操作符进行处理
+
+## SQL 支持
+
+SQL 支持是主动推送连接器的重要组成部分，使用户能够通过 SQL 语句配置和使用推送连接器。
+
+### SQL 语法
+
+用户可以使用标准的 SQL `CREATE TABLE` 语句创建推送连接器：
+
+```sql
+CREATE TABLE push_events (
+    id STRING,
+    data STRING,
+    timestamp TIMESTAMP
+) WITH (
+    connector = 'push',
+    topic = 'user_events',
+    protocol = 'http',
+    http.timeout = '60',
+    http.max_connections = '200'
+);
+```
+
+### 协议选项
+
+SQL 支持允许用户指定以下协议选项：
+
+#### 通用选项
+
+- `connector`：必须为 `'push'`
+- `topic`：必填，指定接收数据的主题
+- `protocol`：可选，指定使用的协议，支持 `'http'`、`'quic'`、`'grpc'` 和 `'websocket'`，默认为 `'http'`
+- `compression`：可选，指定压缩算法，支持 `'none'`、`'gzip'`、`'lz4'` 和 `'zstd'`，默认为 `'none'`
+- `batch_size`：可选，指定批处理大小，默认为 `1000`
+- `buffer_size`：可选，指定缓冲区大小（字节），默认为 `10485760`（10MB）
+- `max_batch_size`：可选，指定最大批处理大小，默认为 `1000`
+
+#### HTTP 协议选项
+
+- `http.timeout`：可选，指定请求超时时间（秒），默认为 `30`
+- `http.max_connections`：可选，指定最大连接数，默认为 `100`
+
+#### QUIC 协议选项
+
+- `quic.max_concurrent_streams`：可选，指定最大并发流数，默认为 `100`
+- `quic.idle_timeout`：可选，指定空闲超时时间（秒），默认为 `30`
+
+#### gRPC 协议选项
+
+- `grpc.max_message_size`：可选，指定最大消息大小（字节），默认为 `4194304`（4MB）
+- `grpc.keepalive_time`：可选，指定保活时间（秒），默认为 `60`
+
+#### WebSocket 协议选项
+
+- `ws.max_frame_size`：可选，指定最大帧大小（字节），默认为 `1048576`（1MB）
+- `ws.heartbeat_interval`：可选，指定心跳间隔（秒），默认为 `30`
+
+### 使用示例
+
+#### HTTP 协议示例
+
+```sql
+CREATE TABLE http_events (
+    id STRING,
+    data STRING,
+    timestamp TIMESTAMP
+) WITH (
+    connector = 'push',
+    topic = 'user_events',
+    protocol = 'http',
+    http.timeout = '60',
+    http.max_connections = '200'
+);
+```
+
+#### QUIC 协议示例
+
+```sql
+CREATE TABLE quic_events (
+    id STRING,
+    data STRING,
+    timestamp TIMESTAMP
+) WITH (
+    connector = 'push',
+    topic = 'device_events',
+    protocol = 'quic',
+    quic.max_concurrent_streams = '200',
+    quic.idle_timeout = '60'
+);
+```
+
+#### gRPC 协议示例
+
+```sql
+CREATE TABLE grpc_events (
+    id STRING,
+    data STRING,
+    timestamp TIMESTAMP
+) WITH (
+    connector = 'push',
+    topic = 'api_events',
+    protocol = 'grpc',
+    grpc.max_message_size = '8388608',
+    grpc.keepalive_time = '120'
+);
+```
+
+#### WebSocket 协议示例
+
+```sql
+CREATE TABLE ws_events (
+    id STRING,
+    data STRING,
+    timestamp TIMESTAMP
+) WITH (
+    connector = 'push',
+    topic = 'realtime_events',
+    protocol = 'websocket',
+    ws.max_frame_size = '2097152',
+    ws.heartbeat_interval = '15'
+);
+```
+
 ## 实现状态
 
 目前已完成的功能：
@@ -248,6 +417,16 @@ controller.release(message.data.len());
   - [x] 实现内存缓冲区
   - [x] 实现背压机制
   - [x] 实现批处理逻辑
+
+- [x] 源操作符
+  - [x] 实现 `PushSourceFunc` 结构体
+  - [x] 实现 `SourceOperator` trait
+  - [x] 实现数据转换为 Arrow 格式
+
+- [x] SQL 支持
+  - [x] 实现 SQL 解析器对 `protocol` 选项的支持
+  - [x] 实现协议特定配置选项的解析
+  - [x] 集成到 SQL 执行计划生成
 
 待实现的功能：
 

@@ -19,6 +19,7 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn, error};
 
 use crate::push::auth::{AuthConfig, AuthService};
+use crate::push::converter::PushMessageConverter;
 use crate::push::http::{HttpServer, HttpServerConfig};
 use crate::push::{PushConfig, PushTable};
 
@@ -55,6 +56,7 @@ pub struct PushSourceFunc {
     pub memory_buffer: Option<Arc<crate::push::buffer::MemoryBuffer>>,
     pub backpressure_controller: Option<Arc<crate::push::backpressure::BackpressureController>>,
     pub batch_processor: Option<crate::push::batch::BatchProcessor>,
+    pub converter: Option<PushMessageConverter>,
 }
 
 impl PushSourceFunc {
@@ -107,6 +109,18 @@ impl PushSourceFunc {
             None
         };
 
+        // Create converter
+        let converter = if let Some(schema) = operator_config.schema.as_ref() {
+            match PushMessageConverter::new(schema) {
+                Ok(converter) => Some(converter),
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Failed to create converter: {}", e));
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(ConstructedOperator::from_source(Box::new(PushSourceFunc {
             topic: table.topic,
             protocol: table.protocol,
@@ -123,6 +137,7 @@ impl PushSourceFunc {
             memory_buffer: Some(memory_buffer),
             backpressure_controller: Some(backpressure_controller),
             batch_processor: Some(batch_processor),
+            converter,
         })))
     }
 
@@ -315,12 +330,33 @@ impl PushSourceFunc {
                             // Process each message in batch
                             for msg in messages {
                                 // Process the message
-                                match collector.collect_deserialized(msg.data.clone(), msg.timestamp).await {
-                                    Ok(_) => {
-                                        debug!("Successfully processed message for topic {}", self.topic);
+                                if let Some(converter) = &self.converter {
+                                    // Convert message to Arrow format
+                                    match converter.convert(&msg) {
+                                        Ok(record_batch) => {
+                                            // Collect record batch
+                                            match collector.collect_batch(record_batch).await {
+                                                Ok(_) => {
+                                                    debug!("Successfully processed message for topic {}", self.topic);
+                                                }
+                                                Err(e) => {
+                                                    error!("Error collecting record batch: {}", e);
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!("Error converting message to Arrow format: {}", e);
+                                        }
                                     }
-                                    Err(e) => {
-                                        error!("Error processing message: {}", e);
+                                } else {
+                                    // Use default deserialization
+                                    match collector.collect_deserialized(msg.data.clone(), msg.timestamp).await {
+                                        Ok(_) => {
+                                            debug!("Successfully processed message for topic {}", self.topic);
+                                        }
+                                        Err(e) => {
+                                            error!("Error processing message: {}", e);
+                                        }
                                     }
                                 }
 
@@ -330,12 +366,33 @@ impl PushSourceFunc {
                         }
                     } else {
                         // Process the message directly
-                        match collector.collect_deserialized(message.data.clone(), message.timestamp).await {
-                            Ok(_) => {
-                                debug!("Successfully processed message for topic {}", self.topic);
+                        if let Some(converter) = &self.converter {
+                            // Convert message to Arrow format
+                            match converter.convert(&message) {
+                                Ok(record_batch) => {
+                                    // Collect record batch
+                                    match collector.collect_batch(record_batch).await {
+                                        Ok(_) => {
+                                            debug!("Successfully processed message for topic {}", self.topic);
+                                        }
+                                        Err(e) => {
+                                            error!("Error collecting record batch: {}", e);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Error converting message to Arrow format: {}", e);
+                                }
                             }
-                            Err(e) => {
-                                error!("Error processing message: {}", e);
+                        } else {
+                            // Use default deserialization
+                            match collector.collect_deserialized(message.data.clone(), message.timestamp).await {
+                                Ok(_) => {
+                                    debug!("Successfully processed message for topic {}", self.topic);
+                                }
+                                Err(e) => {
+                                    error!("Error processing message: {}", e);
+                                }
                             }
                         }
 
@@ -358,12 +415,33 @@ impl PushSourceFunc {
                                 // Process each message in batch
                                 for msg in messages {
                                     // Process the message
-                                    match collector.collect_deserialized(msg.data.clone(), msg.timestamp).await {
-                                        Ok(_) => {
-                                            debug!("Successfully processed message for topic {}", self.topic);
+                                    if let Some(converter) = &self.converter {
+                                        // Convert message to Arrow format
+                                        match converter.convert(&msg) {
+                                            Ok(record_batch) => {
+                                                // Collect record batch
+                                                match collector.collect_batch(record_batch).await {
+                                                    Ok(_) => {
+                                                        debug!("Successfully processed message for topic {}", self.topic);
+                                                    }
+                                                    Err(e) => {
+                                                        error!("Error collecting record batch: {}", e);
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error!("Error converting message to Arrow format: {}", e);
+                                            }
                                         }
-                                        Err(e) => {
-                                            error!("Error processing message: {}", e);
+                                    } else {
+                                        // Use default deserialization
+                                        match collector.collect_deserialized(msg.data.clone(), msg.timestamp).await {
+                                            Ok(_) => {
+                                                debug!("Successfully processed message for topic {}", self.topic);
+                                            }
+                                            Err(e) => {
+                                                error!("Error processing message: {}", e);
+                                            }
                                         }
                                     }
 
