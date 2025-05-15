@@ -240,7 +240,7 @@ if (connector.id === 'push') {
 
 ## 6. 后端 API 需求
 
-❌ 为了完全支持 Push Connector 的 Web UI 功能，后端需要实现以下 API（尚未实现）：
+✅ 为了完全支持 Push Connector 的 Web UI 功能，已实现以下 API：
 
 1. **主题管理 API**：
    - `GET /api/v1/push/topics` - 获取主题列表
@@ -250,7 +250,7 @@ if (connector.id === 'push') {
 2. **主题详情 API**：
    - `GET /api/v1/push/topics/{topic}` - 获取主题详情
 
-这些 API 需要在 `crates/arroyo-api/src/rest.rs` 中添加路由，并在 `crates/arroyo-connectors/src/push/http.rs` 中实现处理函数。
+这些 API 已在 `crates/arroyo-connectors/src/push/http.rs` 中实现，并添加了相应的路由。
 
 ## 7. 实现步骤与进度
 

@@ -14,6 +14,10 @@ pub mod converter;
 pub mod http;
 pub mod source;
 pub mod sql;
+pub mod topic;
+
+#[cfg(test)]
+mod topic_tests;
 
 #[cfg(test)]
 mod tests;

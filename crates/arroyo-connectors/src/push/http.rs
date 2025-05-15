@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::Result;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, State, Query},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post, delete},
@@ -17,10 +18,12 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
 
 use crate::push::source::PushMessage;
+use crate::push::topic::{CreateTopicRequest, TopicError};
 
 /// HTTP server state
 pub struct HttpServerState {
     pub message_tx: mpsc::Sender<PushMessage>,
+    pub topic_manager: Arc<crate::push::topic::TopicManager>,
 }
 
 /// HTTP server configuration
@@ -69,7 +72,10 @@ impl HttpServer {
         &mut self,
         message_tx: mpsc::Sender<PushMessage>,
     ) -> Result<(), anyhow::Error> {
-        let state = Arc::new(HttpServerState { message_tx });
+        let state = Arc::new(HttpServerState {
+            message_tx,
+            topic_manager: Arc::new(crate::push::topic::TopicManager::new()),
+        });
 
         // Create router with routes
         let app = Router::new()
@@ -81,7 +87,7 @@ impl HttpServer {
                 get(Self::handle_get_topic_info),
             )
             .route("/api/v1/push/topics/:topic", delete(Self::handle_delete_topic))
-            .route("/api/v1/push/health", get(Self::handle_health_check))
+            .route("/api/v1/health", get(Self::handle_health_check))
             .with_state(state);
 
         // Start server
@@ -122,6 +128,29 @@ impl HttpServer {
             timestamp: SystemTime::now(),
         };
 
+        // Update topic message count and last activity time
+        if let Err(e) = state.topic_manager.record_message(&topic, body.len()) {
+            // If topic doesn't exist, create it with default settings
+            if let TopicError::TopicNotFound(_) = e {
+                let request = CreateTopicRequest {
+                    name: topic.clone(),
+                    retention_period: 7 * 24 * 60 * 60, // 7 days
+                    compression: false,
+                };
+
+                if let Err(e) = state.topic_manager.create_topic(request) {
+                    error!("Failed to create topic: {}", e);
+                }
+
+                // Try to record message again
+                if let Err(e) = state.topic_manager.record_message(&topic, body.len()) {
+                    error!("Failed to record message: {}", e);
+                }
+            } else {
+                error!("Failed to record message: {}", e);
+            }
+        }
+
         // Send message to channel
         match state.message_tx.send(message).await {
             Ok(_) => {
@@ -151,63 +180,114 @@ impl HttpServer {
     }
 
     /// Handle get topics request
-    async fn handle_get_topics(State(_state): State<Arc<HttpServerState>>) -> impl IntoResponse {
-        // TODO: Implement get topics functionality
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "topics": []
-            })),
-        )
+    async fn handle_get_topics(
+        State(state): State<Arc<HttpServerState>>,
+        Query(params): Query<HashMap<String, String>>,
+    ) -> impl IntoResponse {
+        // Get connection ID from query parameters (optional)
+        let _connection_id = params.get("connectionId");
+
+        // Get topics from topic manager
+        match state.topic_manager.get_topics() {
+            Ok(topics) => {
+                let topics_json = serde_json::to_value(topics).unwrap_or(serde_json::json!([]));
+                (StatusCode::OK, Json(topics_json))
+            },
+            Err(e) => {
+                error!("Failed to get topics: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": format!("Failed to get topics: {}", e)
+                    })),
+                )
+            }
+        }
     }
 
     /// Handle create topic request
     async fn handle_create_topic(
-        State(_state): State<Arc<HttpServerState>>,
-        Json(_payload): Json<serde_json::Value>,
+        State(state): State<Arc<HttpServerState>>,
+        Json(payload): Json<CreateTopicRequest>,
     ) -> impl IntoResponse {
-        // TODO: Implement create topic functionality
-        (
-            StatusCode::CREATED,
-            Json(serde_json::json!({
-                "success": true,
-                "message": "Topic created"
-            })),
-        )
+        // Create topic
+        match state.topic_manager.create_topic(payload) {
+            Ok(topic) => {
+                let topic_json = serde_json::to_value(topic).unwrap_or(serde_json::json!({}));
+                (StatusCode::CREATED, Json(topic_json))
+            },
+            Err(e) => {
+                let status = match e {
+                    TopicError::TopicAlreadyExists(_) => StatusCode::CONFLICT,
+                    TopicError::InvalidTopicName(_) => StatusCode::BAD_REQUEST,
+                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+                };
+
+                (
+                    status,
+                    Json(serde_json::json!({
+                        "error": format!("{}", e)
+                    })),
+                )
+            }
+        }
     }
 
     /// Handle get topic info request
     async fn handle_get_topic_info(
-        State(_state): State<Arc<HttpServerState>>,
+        State(state): State<Arc<HttpServerState>>,
         Path(topic): Path<String>,
     ) -> impl IntoResponse {
-        // TODO: Implement get topic info functionality
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "topic": topic,
-                "messages": 0,
-                "created_at": SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-            })),
-        )
+        // Get topic info
+        match state.topic_manager.get_topic(&topic) {
+            Ok(topic) => {
+                let topic_json = serde_json::to_value(topic).unwrap_or(serde_json::json!({}));
+                (StatusCode::OK, Json(topic_json))
+            },
+            Err(e) => {
+                let status = match e {
+                    TopicError::TopicNotFound(_) => StatusCode::NOT_FOUND,
+                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+                };
+
+                (
+                    status,
+                    Json(serde_json::json!({
+                        "error": format!("{}", e)
+                    })),
+                )
+            }
+        }
     }
 
     /// Handle delete topic request
     async fn handle_delete_topic(
-        State(_state): State<Arc<HttpServerState>>,
+        State(state): State<Arc<HttpServerState>>,
         Path(topic): Path<String>,
     ) -> impl IntoResponse {
-        // TODO: Implement delete topic functionality
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "success": true,
-                "message": format!("Topic {} deleted", topic)
-            })),
-        )
+        // Delete topic
+        match state.topic_manager.delete_topic(&topic) {
+            Ok(_) => (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "message": format!("Topic {} deleted", topic)
+                })),
+            ),
+            Err(e) => {
+                let status = match e {
+                    TopicError::TopicNotFound(_) => StatusCode::NOT_FOUND,
+                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+                };
+
+                (
+                    status,
+                    Json(serde_json::json!({
+                        "error": format!("{}", e)
+                    })),
+                )
+            }
+        }
     }
 
     /// Handle health check request
