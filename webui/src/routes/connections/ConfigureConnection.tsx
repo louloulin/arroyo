@@ -2,6 +2,7 @@ import { Stack } from '@chakra-ui/react';
 import { JsonForm } from './JsonForm';
 import { Connector, useConnectionProfileAutocomplete } from '../../lib/data_fetching';
 import { CreateConnectionState } from './CreateConnection';
+import { PushConnectionForm } from './push/PushConnectionForm';
 
 export const ConfigureConnection = ({
   connector,
@@ -18,6 +19,19 @@ export const ConfigureConnection = ({
     ? useConnectionProfileAutocomplete(state.connectionProfileId)
     : { autocompleteData: undefined, autocompleteError: null };
 
+  // 如果是 Push Connector，使用自定义表单
+  if (connector.id === 'push') {
+    return (
+      <PushConnectionForm
+        connector={connector}
+        state={state}
+        setState={setState}
+        onSubmit={onSubmit}
+      />
+    );
+  }
+
+  // 其他连接器使用通用 JsonForm
   return (
     <Stack spacing={8}>
       <Stack spacing="4" maxW={800}>

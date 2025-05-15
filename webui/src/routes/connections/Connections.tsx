@@ -174,6 +174,19 @@ export function Connections() {
           ))}
 
           <Td textAlign={'right'}>
+            {/* 如果是 Push Connector，导航到 Push 连接详情页面 */}
+            {table.connector === 'push' ? (
+              <Button
+                size="sm"
+                variant="outline"
+                colorScheme="blue"
+                onClick={() => navigate(`/connections/push/${table.id}`)}
+                mr={2}
+              >
+                管理主题
+              </Button>
+            ) : null}
+
             <IconButton
               icon={<FiInfo fontSize="1.25rem" />}
               variant="ghost"
