@@ -1,17 +1,10 @@
-use arroyo_operator::connector::{Connector, Connection, LookupConnector, MetadataDef};
+use arroyo_operator::connector::{Connector, Connection};
 use arroyo_operator::operator::ConstructedOperator;
 use arroyo_rpc::api_types::connections::{ConnectionProfile, ConnectionSchema, ConnectionType, TestSourceMessage};
-use arroyo_rpc::var_str::VarStr;
 use arroyo_rpc::{ConnectorOptions, OperatorConfig};
-use arroyo_rpc::formats::{Format, Framing, BadData};
-use datafusion::sql::sqlparser::ast::{Expr, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::oneshot::Receiver;
-use typify::import_types;
 
 pub mod auth;
 pub mod backpressure;
@@ -47,13 +40,24 @@ const CONFIG_SCHEMA: &str = include_str!("./profile.json");
 const TABLE_SCHEMA: &str = include_str!("./table.json");
 const ICON: &str = include_str!("./push.svg");
 
-// Import types from JSON schema
-import_types!(
-    schema = "src/push/profile.json",
-    convert = {
-        {type = "string", format = "var-str"} = VarStr
-    }
-);
+// Define PushConfig struct manually
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushConfig {
+    pub buffer_size: Option<usize>,
+    pub max_batch_size: Option<usize>,
+    pub authentication: Option<Authentication>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum Authentication {
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "api_key")]
+    ApiKey { api_key: String },
+    #[serde(rename = "oauth")]
+    OAuth { client_id: String, client_secret: String, token_url: String },
+}
 
 // Define PushTable struct manually
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,11 +115,11 @@ impl Connector for PushConnector {
 
     fn test(
         &self,
-        name: &str,
-        config: Self::ProfileT,
-        table: Self::TableT,
-        schema: Option<&ConnectionSchema>,
-        tx: Sender<TestSourceMessage>,
+        _name: &str,
+        _config: Self::ProfileT,
+        _table: Self::TableT,
+        _schema: Option<&ConnectionSchema>,
+        _tx: Sender<TestSourceMessage>,
     ) {
         // TODO: Implement test functionality
     }
@@ -165,14 +169,8 @@ impl Connector for PushConnector {
             })?
         } else {
             PushConfig {
-                buffer_size: match options.pull_opt_u64("buffer_size")? {
-                    Some(size) => Some(size as usize),
-                    None => None,
-                },
-                max_batch_size: match options.pull_opt_u64("max_batch_size")? {
-                    Some(size) => Some(size as usize),
-                    None => None,
-                },
+                buffer_size: options.pull_opt_u64("buffer_size")?.map(|v| v as usize),
+                max_batch_size: options.pull_opt_u64("max_batch_size")?.map(|v| v as usize),
                 authentication: None,
             }
         };

@@ -99,12 +99,7 @@ impl PushMessageConverter {
                     arroyo_rpc::api_types::connections::PrimitiveType::UInt32 => DataType::UInt32,
                     arroyo_rpc::api_types::connections::PrimitiveType::UInt64 => DataType::UInt64,
                     arroyo_rpc::api_types::connections::PrimitiveType::Json => DataType::Utf8,
-                    _ => {
-                        return Err(UserError {
-                            name: "Unsupported data type".to_string(),
-                            details: format!("Unsupported primitive type: {:?}", primitive_type),
-                        });
-                    }
+                    // All primitive types are covered above
                 }
             }
             arroyo_rpc::api_types::connections::FieldType::List(item_type) => {

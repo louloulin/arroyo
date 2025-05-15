@@ -262,7 +262,7 @@ impl PushSourceFunc {
                 // Handle control messages
                 Some(control_msg) = ctx.control_rx.recv() => {
                     match control_msg {
-                        ControlMessage::Stop { mode } => {
+                        ControlMessage::Stop { mode: _ } => {
                             info!("Received stop message");
 
                             // Stop HTTP server if running
@@ -295,7 +295,7 @@ impl PushSourceFunc {
                                 arroyo_rpc::CheckpointCompleted {
                                     checkpoint_epoch: 0,
                                     node_id: ctx.task_info.node_id,
-                                    operator_id: ctx.task_info.operator_id,
+                                    operator_id: ctx.task_info.operator_id.clone(),
                                     subtask_metadata: SubtaskCheckpointMetadata::default(),
                                 }
                             )).await.unwrap();
