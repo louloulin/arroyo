@@ -28,6 +28,7 @@ import { ConfigureProfile } from './ConfigureProfile';
 import { useNavbar } from '../../App';
 
 import { PushTableConfig } from '../../types/push';
+import { PushGlobalProvider } from '../../contexts/PushGlobalContext';
 
 export type CreateConnectionState = {
   name: string | undefined;
@@ -128,36 +129,38 @@ export const ConnectionCreator = ({ connector }: { connector: Connector }) => {
   };
 
   return (
-    <Stack spacing={8}>
-      <Stepper index={activeStep}>
-        {steps.map((step, index) => (
-          <Step
-            key={index}
-            onClick={() => {
-              if (activeStep > index) {
-                setActiveStep(index);
-              }
-            }}
-          >
-            <StepIndicator>
-              <StepStatus
-                complete={<StepIcon />}
-                incomplete={<StepNumber />}
-                active={<StepNumber />}
-              />
-            </StepIndicator>
+    <PushGlobalProvider>
+      <Stack spacing={8}>
+        <Stepper index={activeStep}>
+          {steps.map((step, index) => (
+            <Step
+              key={index}
+              onClick={() => {
+                if (activeStep > index) {
+                  setActiveStep(index);
+                }
+              }}
+            >
+              <StepIndicator>
+                <StepStatus
+                  complete={<StepIcon />}
+                  incomplete={<StepNumber />}
+                  active={<StepNumber />}
+                />
+              </StepIndicator>
 
-            <Box flexShrink="0">
-              <StepTitle>{step.title}</StepTitle>
-            </Box>
+              <Box flexShrink="0">
+                <StepTitle>{step.title}</StepTitle>
+              </Box>
 
-            <StepSeparator />
-          </Step>
-        ))}
-      </Stepper>
+              <StepSeparator />
+            </Step>
+          ))}
+        </Stepper>
 
-      {steps[activeStep].el}
-    </Stack>
+        {steps[activeStep].el}
+      </Stack>
+    </PushGlobalProvider>
   );
 };
 

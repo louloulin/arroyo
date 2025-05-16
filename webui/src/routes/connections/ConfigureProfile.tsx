@@ -20,7 +20,7 @@ import {
   useToast,
   Flex,
 } from '@chakra-ui/react';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { JsonForm } from './JsonForm';
 import {
   AddIcon,
@@ -34,6 +34,7 @@ import { CreateConnectionState } from './CreateConnection';
 import { formatError } from '../../lib/util';
 import { CreateProfile } from './CreateProfile';
 import Loading from '../../components/Loading';
+import { useGlobalPush } from '../../contexts/PushGlobalContext';
 
 function ClusterViewerModal({
   isOpen,
@@ -237,6 +238,14 @@ export const ConfigureProfile = ({
   let { connectionProfiles, connectionProfilesLoading, mutateConnectionProfiles } =
     useConnectionProfiles();
   const [creatingCluster, setCreatingCluster] = useState<boolean>(false);
+  const { topic, updateTopic } = useGlobalPush();
+
+  // 如果 state.table 中有 topic，则更新全局状态
+  useEffect(() => {
+    if (state.table?.topic && connector.id === 'push') {
+      updateTopic(state.table.topic);
+    }
+  }, [state.table?.topic, connector.id, updateTopic]);
 
   if (connectionProfilesLoading) {
     return <Loading />;

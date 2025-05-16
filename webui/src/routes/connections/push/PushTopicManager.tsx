@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Box,
   Button,
@@ -28,9 +28,23 @@ import {
   Spinner,
   Alert,
   AlertIcon,
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogContent,
+  AlertDialogOverlay,
+  Switch,
+  FormErrorMessage,
+  NumberInput,
+  NumberInputField,
+  NumberInputStepper,
+  NumberIncrementStepper,
+  NumberDecrementStepper,
+  Stack,
 } from '@chakra-ui/react';
 import { AddIcon, DeleteIcon, InfoIcon } from '@chakra-ui/icons';
-import { PushTopic } from '../../../lib/data_fetching';
+import { PushTopic, usePushTopics, createPushTopic, deletePushTopic } from '../../../lib/data_fetching';
 
 interface PushTopicManagerProps {
   connectionId: string;
@@ -45,35 +59,20 @@ export const PushTopicManager: React.FC<PushTopicManagerProps> = ({
 }) => {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [newTopicName, setNewTopicName] = useState('');
+  const [retentionPeriod, setRetentionPeriod] = useState(7); // 默认保留期为7天
+  const [enableCompression, setEnableCompression] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [topicToDelete, setTopicToDelete] = useState<string | null>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const toast = useToast();
 
-  // 模拟数据 - 在实际实现中，这些数据应该从 API 获取
-  const [topics, setTopics] = useState<PushTopic[]>([
-    {
-      name: 'events',
-      messages: 1245,
-      created_at: Date.now() / 1000 - 86400 * 3,
-      last_activity: Date.now() / 1000 - 3600,
-      retention_period: 7 * 86400,
-      compression: true,
-    },
-    {
-      name: 'logs',
-      messages: 5678,
-      created_at: Date.now() / 1000 - 86400 * 5,
-      last_activity: Date.now() / 1000 - 1800,
-      retention_period: 14 * 86400,
-      compression: false,
-    },
-  ]);
-  const topicsLoading = false;
-  const topicsError = null;
-  const mutateTopics = () => {};
+  // 使用真实的 API 调用获取主题列表
+  const { topics, topicsLoading, topicsError, mutateTopics } = usePushTopics(connectionId);
 
-  const handleCreateTopic = async () => {
-    if (!newTopicName.trim()) {
+  const validateTopicName = (name: string): boolean => {
+    if (!name.trim()) {
       toast({
         title: 'Error',
         description: 'Topic name cannot be empty',
@@ -81,40 +80,59 @@ export const PushTopicManager: React.FC<PushTopicManagerProps> = ({
         duration: 3000,
         isClosable: true,
       });
+      return false;
+    }
+
+    // 验证主题名称只包含字母、数字、下划线和连字符
+    const validNameRegex = /^[a-zA-Z0-9_-]+$/;
+    if (!validNameRegex.test(name)) {
+      toast({
+        title: 'Error',
+        description: 'Topic name can only contain letters, numbers, underscores and hyphens',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleCreateTopic = async () => {
+    if (!validateTopicName(newTopicName)) {
       return;
     }
 
     setIsCreating(true);
     try {
-      // 模拟创建主题
-      setTimeout(() => {
-        // 添加新主题到列表
-        setTopics([
-          ...topics,
-          {
-            name: newTopicName,
-            messages: 0,
-            created_at: Date.now() / 1000,
-            retention_period: 7 * 86400,
-            compression: false,
-          }
-        ]);
+      // 使用真实的 API 调用创建主题
+      await createPushTopic(connectionId, newTopicName, {
+        retention_period: retentionPeriod * 24 * 60 * 60, // 将天数转换为秒
+        compression: enableCompression,
+      });
 
-        toast({
-          title: 'Success',
-          description: `Topic "${newTopicName}" created successfully`,
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
-        });
-        setNewTopicName('');
-        onClose();
+      toast({
+        title: 'Success',
+        description: `Topic "${newTopicName}" created successfully`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
 
-        // 如果提供了回调函数，则调用它
-        if (onCreateTopic) {
-          onCreateTopic();
-        }
-      }, 1000);
+      // 刷新主题列表
+      mutateTopics();
+
+      // 重置表单
+      setNewTopicName('');
+      setRetentionPeriod(7);
+      setEnableCompression(false);
+      onClose();
+
+      // 如果提供了回调函数，则调用它
+      if (onCreateTopic) {
+        onCreateTopic();
+      }
     } catch (error) {
       toast({
         title: 'Error',
@@ -128,22 +146,29 @@ export const PushTopicManager: React.FC<PushTopicManagerProps> = ({
     }
   };
 
-  const handleDeleteTopic = async (topicName: string) => {
-    setIsDeleting(topicName);
-    try {
-      // 模拟删除主题
-      setTimeout(() => {
-        // 从列表中移除主题
-        setTopics(topics.filter(topic => topic.name !== topicName));
+  const handleDeleteClick = (topicName: string) => {
+    setTopicToDelete(topicName);
+    onDeleteOpen();
+  };
 
-        toast({
-          title: 'Success',
-          description: `Topic "${topicName}" deleted successfully`,
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
-        });
-      }, 1000);
+  const handleDeleteTopic = async () => {
+    if (!topicToDelete) return;
+
+    setIsDeleting(topicToDelete);
+    try {
+      // 使用真实的 API 调用删除主题
+      await deletePushTopic(connectionId, topicToDelete);
+
+      toast({
+        title: 'Success',
+        description: `Topic "${topicToDelete}" deleted successfully`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // 刷新主题列表
+      mutateTopics();
     } catch (error) {
       toast({
         title: 'Error',
@@ -154,6 +179,8 @@ export const PushTopicManager: React.FC<PushTopicManagerProps> = ({
       });
     } finally {
       setIsDeleting(null);
+      setTopicToDelete(null);
+      onDeleteClose();
     }
   };
 
@@ -173,7 +200,7 @@ export const PushTopicManager: React.FC<PushTopicManagerProps> = ({
       {topicsError && (
         <Alert status="error" mb={4}>
           <AlertIcon />
-          Failed to load topics: {topicsError}
+          Failed to load topics: {topicsError.message}
         </Alert>
       )}
 
@@ -212,7 +239,7 @@ export const PushTopicManager: React.FC<PushTopicManagerProps> = ({
                       colorScheme="red"
                       variant="ghost"
                       isLoading={isDeleting === topic.name}
-                      onClick={() => handleDeleteTopic(topic.name)}
+                      onClick={() => handleDeleteClick(topic.name)}
                     />
                   </Flex>
                 </Td>
@@ -233,17 +260,50 @@ export const PushTopicManager: React.FC<PushTopicManagerProps> = ({
           <ModalHeader>Create New Topic</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
-            <FormControl isRequired>
-              <FormLabel>Topic Name</FormLabel>
-              <Input
-                placeholder="my-topic"
-                value={newTopicName}
-                onChange={(e) => setNewTopicName(e.target.value)}
-              />
-              <FormHelperText>
-                Enter a unique name for your topic. This will be used in the URL path.
-              </FormHelperText>
-            </FormControl>
+            <Stack spacing={4}>
+              <FormControl isRequired>
+                <FormLabel>Topic Name</FormLabel>
+                <Input
+                  placeholder="my-topic"
+                  value={newTopicName}
+                  onChange={(e) => setNewTopicName(e.target.value)}
+                />
+                <FormHelperText>
+                  Enter a unique name for your topic. This will be used in the URL path.
+                  Only letters, numbers, underscores and hyphens are allowed.
+                </FormHelperText>
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Retention Period (days)</FormLabel>
+                <NumberInput
+                  min={1}
+                  max={365}
+                  value={retentionPeriod}
+                  onChange={(valueString) => setRetentionPeriod(parseInt(valueString))}
+                >
+                  <NumberInputField />
+                  <NumberInputStepper>
+                    <NumberIncrementStepper />
+                    <NumberDecrementStepper />
+                  </NumberInputStepper>
+                </NumberInput>
+                <FormHelperText>
+                  How long to keep messages in this topic (in days).
+                </FormHelperText>
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Enable Compression</FormLabel>
+                <Switch
+                  isChecked={enableCompression}
+                  onChange={(e) => setEnableCompression(e.target.checked)}
+                />
+                <FormHelperText>
+                  Enable compression to reduce storage size.
+                </FormHelperText>
+              </FormControl>
+            </Stack>
           </ModalBody>
 
           <ModalFooter>
@@ -261,6 +321,40 @@ export const PushTopicManager: React.FC<PushTopicManagerProps> = ({
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        isOpen={isDeleteOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={onDeleteClose}
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              Delete Topic
+            </AlertDialogHeader>
+
+            <AlertDialogBody>
+              Are you sure you want to delete the topic "{topicToDelete}"? This action cannot be undone.
+            </AlertDialogBody>
+
+            <AlertDialogFooter>
+              <Button ref={cancelRef} onClick={onDeleteClose}>
+                Cancel
+              </Button>
+              <Button
+                colorScheme="red"
+                onClick={handleDeleteTopic}
+                ml={3}
+                isLoading={isDeleting === topicToDelete}
+                loadingText="Deleting"
+              >
+                Delete
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
     </Box>
   );
 };

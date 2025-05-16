@@ -21,6 +21,7 @@ import { CreateConnectionState } from '../CreateConnection';
 import { PushTableConfig, Protocol } from '../../../types/push';
 import { validatePushTableConfig } from '../../../utils/validation';
 import { useError, ErrorDisplay } from '../../../contexts/ErrorContext';
+import { useGlobalPush } from '../../../contexts/PushGlobalContext';
 
 interface PushConnectionFormProps {
   connector: Connector;
@@ -37,23 +38,33 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
 }) => {
   const { addValidationError, clearError } = useError();
   const toast = useToast();
+  const { topic, updateTopic } = useGlobalPush();
 
-  // 初始化 state.table 如果它不存在
+  // 初始化 state.table 如果它不存在，或者使用全局 topic
   useEffect(() => {
     if (!state.table) {
       setState({
         ...state,
         table: {
           protocol: 'http',
-          topic: '',
+          topic: topic || '', // 使用全局 topic 或空字符串
           http_config: {
             timeout: '30',
             max_connections: '100'
           }
         } as PushTableConfig
       });
+    } else if (topic && state.table.topic === '') {
+      // 如果全局有 topic 但当前表没有，则使用全局 topic
+      setState({
+        ...state,
+        table: {
+          ...state.table,
+          topic: topic
+        } as PushTableConfig
+      });
     }
-  }, [state, setState]);
+  }, [state, setState, topic]);
 
   const [protocol, setProtocol] = useState<string>(state.table?.protocol || 'http');
 
@@ -104,13 +115,17 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
             placeholder="my-topic"
             value={state.table?.topic || ''}
             onChange={(e) => {
+              const newTopic = e.target.value;
+              // 更新本地状态
               setState({
                 ...state,
                 table: {
                   ...state.table,
-                  topic: e.target.value,
+                  topic: newTopic,
                 } as PushTableConfig,
               });
+              // 同时更新全局状态
+              updateTopic(newTopic);
             }}
           />
           <FormHelperText>
