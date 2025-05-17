@@ -29,6 +29,7 @@ use crate::pipelines::{
     get_pipelines, patch_pipeline, restart_pipeline, validate_query,
 };
 use crate::prql::convert_prql;
+use crate::push;
 use crate::rest_utils::not_found;
 use crate::udfs::{create_udf, delete_udf, get_udfs, validate_udf};
 use crate::ApiDoc;
@@ -139,6 +140,9 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
             get(get_operator_metric_groups),
         );
 
+    // Create Push routes
+    let (push_routes, _push_connector) = push::create_push_routes();
+
     let api_routes = Router::new()
         .route("/ping", get(ping))
         .route("/connectors", get(get_connectors))
@@ -173,6 +177,8 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .route("/pipelines/:id", delete(delete_pipeline))
         .route("/prql/convert", post(convert_prql))
         .nest("/pipelines/:id/jobs", jobs_routes)
+        // Merge Push routes
+        .merge(push_routes)
         .fallback(api_fallback);
 
     Router::new()

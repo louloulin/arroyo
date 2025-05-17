@@ -57,6 +57,7 @@ mod jobs;
 mod metrics;
 mod pipelines;
 mod prql;
+pub mod push;
 pub mod rest;
 mod rest_utils;
 pub mod sql;

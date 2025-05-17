@@ -1,11 +1,14 @@
+use anyhow::Result;
 use arroyo_operator::connector::{Connector, Connection};
 use arroyo_operator::operator::ConstructedOperator;
 use arroyo_rpc::api_types::connections::{ConnectionProfile, ConnectionSchema, ConnectionType, TestSourceMessage};
 use arroyo_rpc::{ConnectorOptions, OperatorConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tokio::sync::mpsc::Sender;
+use std::sync::Arc;
+use tokio::sync::mpsc::{self, Sender};
 
+pub mod api;
 pub mod auth;
 pub mod backpressure;
 pub mod batch;
@@ -17,6 +20,7 @@ pub mod metrics;
 pub mod source;
 pub mod sql;
 pub mod topic;
+pub mod validator;
 
 #[cfg(test)]
 mod topic_tests;
@@ -85,8 +89,101 @@ pub struct PushTable {
     pub batch_size: Option<u64>,
 }
 
+/// Push connector configuration
+#[derive(Debug, Clone)]
+pub struct PushConnectorConfig {
+    pub buffer_size: usize,
+    pub max_batch_size: usize,
+    pub max_message_size: usize,
+    pub default_retention_period: u64,
+    pub default_compression: bool,
+}
+
+impl Default for PushConnectorConfig {
+    fn default() -> Self {
+        Self {
+            buffer_size: 10 * 1024 * 1024, // 10 MB
+            max_batch_size: 1000,
+            max_message_size: 1024 * 1024, // 1 MB
+            default_retention_period: 7 * 24 * 60 * 60, // 7 days
+            default_compression: false,
+        }
+    }
+}
+
 /// Push connector for receiving data pushed from external systems
-pub struct PushConnector {}
+pub struct PushConnector {
+    topic_manager: Arc<topic::TopicManager>,
+    metrics_manager: Arc<metrics::TopicMetricsManager>,
+    message_store: Arc<messages::MessageStore>,
+    message_validator: Arc<validator::MessageValidator>,
+    message_tx: Option<mpsc::Sender<source::PushMessage>>,
+    config: PushConnectorConfig,
+}
+
+impl PushConnector {
+    /// Create a new Push Connector
+    pub fn new() -> Self {
+        Self::with_config(PushConnectorConfig::default())
+    }
+
+    /// Create a new Push Connector with custom configuration
+    pub fn with_config(config: PushConnectorConfig) -> Self {
+        Self {
+            topic_manager: Arc::new(topic::TopicManager::new()),
+            metrics_manager: Arc::new(metrics::TopicMetricsManager::new()),
+            message_store: Arc::new(messages::MessageStore::new(1000)), // Store up to 1000 messages per topic
+            message_validator: Arc::new(validator::MessageValidator::new(
+                config.max_message_size,
+                100, // max_field_count
+                256, // max_field_name_length
+                10 * 1024, // max_field_value_length (10 KB)
+            )),
+            message_tx: None,
+            config,
+        }
+    }
+
+    /// Get the topic manager
+    pub fn topic_manager(&self) -> Arc<topic::TopicManager> {
+        self.topic_manager.clone()
+    }
+
+    /// Get the metrics manager
+    pub fn metrics_manager(&self) -> Option<Arc<metrics::TopicMetricsManager>> {
+        Some(self.metrics_manager.clone())
+    }
+
+    /// Get the message store
+    pub fn message_store(&self) -> Option<Arc<messages::MessageStore>> {
+        Some(self.message_store.clone())
+    }
+
+    /// Get the message validator
+    pub fn message_validator(&self) -> Arc<validator::MessageValidator> {
+        self.message_validator.clone()
+    }
+
+    /// Get the configuration
+    pub fn config(&self) -> &PushConnectorConfig {
+        &self.config
+    }
+
+    /// Set the message sender
+    pub fn set_message_sender(&mut self, tx: mpsc::Sender<source::PushMessage>) {
+        self.message_tx = Some(tx);
+    }
+
+    /// Send a message
+    pub async fn send_message(&self, message: source::PushMessage) -> Result<()> {
+        if let Some(tx) = &self.message_tx {
+            tx.send(message).await.map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Message sender not set"))
+        }
+    }
+}
 
 impl Connector for PushConnector {
     type ProfileT = PushConfig;
