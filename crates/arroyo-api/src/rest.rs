@@ -140,10 +140,11 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
             get(get_operator_metric_groups),
         );
 
-    // Create Push routes
-    let (push_routes, _push_connector) = push::create_push_routes();
+    // Get Push routes
+    let push_routes = push::create_push_routes();
 
-    let api_routes = Router::new()
+    // Create a router with all the API routes
+    let mut api_routes = Router::new()
         .route("/ping", get(ping))
         .route("/connectors", get(get_connectors))
         .route("/connection_profiles/test", post(test_connection_profile))
@@ -176,10 +177,15 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .route("/pipelines/:id/restart", post(restart_pipeline))
         .route("/pipelines/:id", delete(delete_pipeline))
         .route("/prql/convert", post(convert_prql))
-        .nest("/pipelines/:id/jobs", jobs_routes)
-        // Merge Push routes
-        .merge(push_routes)
-        .fallback(api_fallback);
+        .nest("/pipelines/:id/jobs", jobs_routes);
+
+    // Add Push routes
+    for (path, method_router) in push_routes {
+        api_routes = api_routes.route(path, method_router.with_state(()));
+    }
+
+    // Add fallback route
+    api_routes = api_routes.fallback(api_fallback);
 
     Router::new()
         .merge(

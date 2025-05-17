@@ -198,12 +198,12 @@ impl TopicMetricsManager {
     }
 
     /// Get metrics for all topics
-    pub fn get_all_metrics(&self) -> Result<Vec<TopicMetrics>, String> {
+    pub fn get_all_metrics(&self) -> Result<HashMap<String, TopicMetrics>, String> {
         let metrics = self.metrics.read().map_err(|e| {
             format!("Failed to acquire read lock for metrics: {}", e)
         })?;
 
-        Ok(metrics.values().cloned().collect())
+        Ok(metrics.clone())
     }
 }
 
