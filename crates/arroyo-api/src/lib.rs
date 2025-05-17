@@ -58,6 +58,8 @@ mod metrics;
 mod pipelines;
 mod prql;
 mod push;
+#[cfg(test)]
+mod push_tests;
 pub mod rest;
 mod rest_utils;
 pub mod sql;

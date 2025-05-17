@@ -125,6 +125,9 @@ mod tests {
         // Validate options
         assert!(sql::validate_protocol_options(&mut options).is_ok());
 
+        // Check that topic is still present after validation
+        assert!(options.contains_key("topic"), "Topic should still be present after validation");
+
         // Create invalid options (missing topic)
         let invalid_sql_options = vec![
             SqlOption::KeyValue {
@@ -163,6 +166,51 @@ mod tests {
 
         // Validate options
         assert!(sql::validate_protocol_options(&mut invalid_protocol).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_topic_preserved_after_validation() -> Result<()> {
+        // Create options with topic and other parameters
+        let sql_options = vec![
+            SqlOption::KeyValue {
+                key: Ident {
+                    value: "protocol".to_string(),
+                    quote_style: None,
+                },
+                value: Expr::Value(Value::SingleQuotedString("http".to_string())),
+            },
+            SqlOption::KeyValue {
+                key: Ident {
+                    value: "topic".to_string(),
+                    quote_style: None,
+                },
+                value: Expr::Value(Value::SingleQuotedString("test_topic".to_string())),
+            },
+            SqlOption::KeyValue {
+                key: Ident {
+                    value: "http.timeout".to_string(),
+                    quote_style: None,
+                },
+                value: Expr::Value(Value::SingleQuotedString("30".to_string())),
+            },
+        ];
+
+        let mut options = ConnectorOptions::try_from(&sql_options).unwrap();
+
+        // Parse protocol options
+        sql::parse_protocol_options(&mut options)?;
+
+        // Validate options
+        sql::validate_protocol_options(&mut options)?;
+
+        // Check that topic is still present after both operations
+        assert!(options.contains_key("topic"), "Topic should still be present after validation");
+
+        // Now try to pull the topic and verify it works
+        let topic = options.pull_opt_str("topic")?;
+        assert_eq!(topic, Some("test_topic".to_string()), "Topic value should be preserved");
 
         Ok(())
     }

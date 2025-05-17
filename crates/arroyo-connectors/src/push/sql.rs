@@ -133,31 +133,16 @@ pub fn validate_protocol_options(options: &mut ConnectorOptions) -> Result<(), a
         None => "http".to_string(),
     };
 
+    // Check if topic exists, but don't remove it
+    let has_topic = options.contains_key("topic");
+    if !has_topic {
+        return Err(anyhow::anyhow!("Missing required option: topic"));
+    }
+
     // Validate protocol-specific options
     match protocol.as_str() {
-        "http" => {
-            // Check for required HTTP options
-            if options.pull_opt_str("topic").map_err(|e| anyhow::anyhow!("{}", e))?.is_none() {
-                return Err(anyhow::anyhow!("Missing required option: topic"));
-            }
-        }
-        "quic" => {
-            // Check for required QUIC options
-            if options.pull_opt_str("topic").map_err(|e| anyhow::anyhow!("{}", e))?.is_none() {
-                return Err(anyhow::anyhow!("Missing required option: topic"));
-            }
-        }
-        "grpc" => {
-            // Check for required gRPC options
-            if options.pull_opt_str("topic").map_err(|e| anyhow::anyhow!("{}", e))?.is_none() {
-                return Err(anyhow::anyhow!("Missing required option: topic"));
-            }
-        }
-        "websocket" => {
-            // Check for required WebSocket options
-            if options.pull_opt_str("topic").map_err(|e| anyhow::anyhow!("{}", e))?.is_none() {
-                return Err(anyhow::anyhow!("Missing required option: topic"));
-            }
+        "http" | "quic" | "grpc" | "websocket" => {
+            // No additional validation needed
         }
         _ => {
             return Err(anyhow::anyhow!(

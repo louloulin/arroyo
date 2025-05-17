@@ -139,8 +139,6 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
             get(get_operator_metric_groups),
         );
 
-    // Push router is disabled due to Axum version incompatibility
-
     // Create a router with all the API routes
     let mut api_routes = Router::new()
         .route("/ping", get(ping))
@@ -176,6 +174,9 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .route("/pipelines/:id", delete(delete_pipeline))
         .route("/prql/convert", post(convert_prql))
         .nest("/pipelines/:id/jobs", jobs_routes);
+
+    // Add Push routes
+    api_routes = api_routes.merge(crate::push::create_push_routes());
 
     // Add fallback route
     api_routes = api_routes.fallback(api_fallback);
