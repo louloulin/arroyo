@@ -7,6 +7,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, Sender};
+use std::sync::RwLock;
+use once_cell::sync::Lazy;
+
+// Global registry for message senders
+static MESSAGE_SENDERS: Lazy<RwLock<HashMap<String, mpsc::Sender<source::PushMessage>>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
 
 pub mod api;
 pub mod auth;
@@ -17,6 +23,7 @@ pub mod converter;
 pub mod http;
 pub mod messages;
 pub mod metrics;
+pub mod retry;
 pub mod source;
 pub mod sql;
 pub mod topic;
@@ -129,19 +136,31 @@ impl PushConnector {
 
     /// Create a new Push Connector with custom configuration
     pub fn with_config(config: PushConnectorConfig) -> Self {
-        Self {
-            topic_manager: Arc::new(topic::TopicManager::new()),
-            metrics_manager: Arc::new(metrics::TopicMetricsManager::new()),
-            message_store: Arc::new(messages::MessageStore::new(1000)), // Store up to 1000 messages per topic
-            message_validator: Arc::new(validator::MessageValidator::new(
-                config.max_message_size,
-                100, // max_field_count
-                256, // max_field_name_length
-                10 * 1024, // max_field_value_length (10 KB)
-            )),
+        let topic_manager = Arc::new(topic::TopicManager::new());
+        let metrics_manager = Arc::new(metrics::TopicMetricsManager::new());
+        let message_store = Arc::new(messages::MessageStore::new(1000)); // Store up to 1000 messages per topic
+        let message_validator = Arc::new(validator::MessageValidator::new(
+            config.max_message_size,
+            100, // max_field_count
+            256, // max_field_name_length
+            10 * 1024, // max_field_value_length (10 KB)
+        ));
+
+        // Create connector instance
+        let connector = Self {
+            topic_manager,
+            metrics_manager,
+            message_store: message_store.clone(),
+            message_validator,
             message_tx: None,
-            config,
-        }
+            config: config.clone(),
+        };
+
+        // We'll initialize the retry manager in a separate function
+        // to avoid the Send issue with RwLockReadGuard
+        Self::init_retry_manager(message_store);
+
+        connector
     }
 
     /// Get the topic manager
@@ -164,6 +183,57 @@ impl PushConnector {
         self.message_validator.clone()
     }
 
+    /// Initialize retry manager
+    fn init_retry_manager(message_store: Arc<messages::MessageStore>) {
+        // Create a channel for retry messages
+        let (tx, rx) = mpsc::channel::<source::PushMessage>(100);
+
+        // Create retry manager
+        let retry_config = retry::RetryConfig::default();
+        let retry_manager = Arc::new(retry::RetryManager::new(message_store, retry_config));
+
+        // Start retry manager
+        let retry_manager_clone = retry_manager.clone();
+
+        // Spawn a task to start the retry manager
+        tokio::spawn(async move {
+            retry_manager_clone.start(tx).await;
+        });
+
+        // Spawn a task to process retry messages
+        tokio::spawn(async move {
+            Self::process_retry_messages(rx).await;
+        });
+    }
+
+    /// Process retry messages
+    async fn process_retry_messages(mut rx: mpsc::Receiver<source::PushMessage>) {
+        while let Some(message) = rx.recv().await {
+            // Clone message for use in the closure
+            let message_clone = message.clone();
+            let topic = message.topic.clone();
+
+            // Get the sender from the global registry
+            let tx_clone = {
+                let senders = MESSAGE_SENDERS.read().unwrap();
+                if let Some(tx) = senders.get(&topic) {
+                    Some(tx.clone())
+                } else {
+                    None
+                }
+            };
+
+            // Now send the message if we have a sender
+            if let Some(tx) = tx_clone {
+                if let Err(e) = tx.send(message_clone).await {
+                    tracing::error!("Failed to send retry message: {}", e);
+                } else {
+                    tracing::debug!("Successfully sent retry message for topic {}", topic);
+                }
+            }
+        }
+    }
+
     /// Get the configuration
     pub fn config(&self) -> &PushConnectorConfig {
         &self.config
@@ -175,13 +245,87 @@ impl PushConnector {
     }
 
     /// Send a message
-    pub async fn send_message(&self, message: source::PushMessage) -> Result<()> {
-        if let Some(tx) = &self.message_tx {
-            tx.send(message).await.map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Message sender not set"))
+    pub async fn send_message(&self, mut message: source::PushMessage) -> Result<()> {
+        let topic = message.topic.clone();
+        let data = message.data.clone();
+
+        // Store message in message store
+        let message_data = match self.message_store.store_message(&topic, data) {
+            Ok(data) => data,
+            Err(e) => {
+                tracing::error!("Failed to store message: {}", e);
+                return Err(anyhow::anyhow!("Failed to store message: {}", e));
+            }
+        };
+
+        // Update message ID
+        message.id = message_data.id;
+
+        // Update metrics
+        if let Err(e) = self.metrics_manager.record_message(&topic, message_data.size) {
+            tracing::error!("Failed to record message metrics: {}", e);
         }
+
+        // Validate message
+        if let Err(e) = self.message_validator.validate(&topic, &message.data) {
+            tracing::warn!("Message validation failed: {}", e);
+            // Mark message as failed
+            if let Err(e) = self.message_store.mark_message_failed(&topic, message_data.id, e.to_string()) {
+                tracing::error!("Failed to mark message as failed: {}", e);
+            }
+            return Err(anyhow::anyhow!("Message validation failed"));
+        }
+
+        // Mark message as processing
+        if let Err(e) = self.message_store.mark_message_processing(&topic, message_data.id) {
+            tracing::error!("Failed to mark message as processing: {}", e);
+        }
+
+        // First try to use the local message sender
+        if let Some(tx) = &self.message_tx {
+            match tx.send(message.clone()).await {
+                Ok(_) => {
+                    // Mark message as processed
+                    if let Err(e) = self.message_store.mark_message_processed(&topic, message_data.id) {
+                        tracing::error!("Failed to mark message as processed: {}", e);
+                    }
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::error!("Failed to send message via local sender: {}", e);
+                }
+            }
+        }
+
+        // If local sender is not available or fails, try to use the global registry
+        if let Ok(senders) = MESSAGE_SENDERS.read() {
+            if let Some(tx) = senders.get(&topic) {
+                match tx.send(message.clone()).await {
+                    Ok(_) => {
+                        tracing::debug!("Message for topic {} sent to streaming pipeline via global registry", topic);
+                        // Mark message as processed
+                        if let Err(e) = self.message_store.mark_message_processed(&topic, message_data.id) {
+                            tracing::error!("Failed to mark message as processed: {}", e);
+                        }
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to send message to streaming pipeline via global registry: {}", e);
+                    }
+                }
+            }
+        }
+
+        // If we get here, no sender was available
+        tracing::warn!("Message sender not set, message for topic {} will not be processed by streaming pipeline", topic);
+
+        // Mark message as failed
+        if let Err(e) = self.message_store.mark_message_failed(&topic, message_data.id, "No message sender available".to_string()) {
+            tracing::error!("Failed to mark message as failed: {}", e);
+        }
+
+        // Return error since we couldn't process the message
+        Err(anyhow::anyhow!("No message sender available for topic {}", topic))
     }
 }
 
@@ -295,6 +439,27 @@ impl Connector for PushConnector {
         table: Self::TableT,
         schema: Option<&ConnectionSchema>,
     ) -> anyhow::Result<Connection> {
+        // Create a combined config that includes both profile and table
+        let table_config = serde_json::json!({
+            "topic": table.topic,
+            "protocol": table.protocol,
+            "retention_period": table.retention_period,
+            "http_config": table.http_config,
+            "quic_config": table.quic_config,
+            "grpc_config": table.grpc_config,
+            "websocket_config": table.websocket_config,
+            "compression": table.compression,
+            "batch_size": table.batch_size
+        });
+
+        let combined_config = serde_json::json!({
+            "buffer_size": config.buffer_size,
+            "max_batch_size": config.max_batch_size,
+            "authentication": config.authentication,
+            "connection": table_config.clone(),
+            "table": table_config
+        });
+
         Ok(Connection {
             id,
             connector: self.name(),
@@ -310,7 +475,7 @@ impl Connector for PushConnector {
                 inferred: None,
                 primary_keys: Default::default(),
             }),
-            config: serde_json::to_string(&config)?,
+            config: serde_json::to_string(&combined_config)?,
             description: format!("Push connector for topic: {}", table.topic),
             partition_fields: None,
         })
@@ -322,6 +487,10 @@ impl Connector for PushConnector {
         table: Self::TableT,
         config: OperatorConfig,
     ) -> anyhow::Result<ConstructedOperator> {
+        // Log the profile and table for debugging
+        tracing::debug!("Making operator with profile: {:?}", profile);
+        tracing::debug!("Making operator with table: {:?}", table);
+
         source::PushSourceFunc::new_operator(profile, table, config)
     }
 }

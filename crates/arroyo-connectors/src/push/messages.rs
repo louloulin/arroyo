@@ -4,6 +4,19 @@ use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
+/// Message status
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MessageStatus {
+    /// Message is pending processing
+    Pending,
+    /// Message is being processed
+    Processing,
+    /// Message has been processed successfully
+    Processed,
+    /// Message processing failed
+    Failed,
+}
+
 /// Message data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageData {
@@ -17,6 +30,10 @@ pub struct MessageData {
     pub timestamp: u64,
     /// Message size in bytes
     pub size: usize,
+    /// Message status
+    pub status: MessageStatus,
+    /// Error message if processing failed
+    pub error: Option<String>,
 }
 
 /// Message query parameters
@@ -79,6 +96,8 @@ impl MessageStore {
             content: content.clone(),
             timestamp: now,
             size: content.len(),
+            status: MessageStatus::Pending,
+            error: None,
         };
 
         // Store message
@@ -87,10 +106,10 @@ impl MessageStore {
         })?;
 
         let topic_messages = messages.entry(topic.to_string()).or_insert_with(VecDeque::new);
-        
+
         // Add message to the end
         topic_messages.push_back(message.clone());
-        
+
         // Remove oldest messages if we exceed the limit
         while topic_messages.len() > self.max_messages_per_topic {
             topic_messages.pop_front();
@@ -175,6 +194,73 @@ impl MessageStore {
         }
 
         Ok(())
+    }
+
+    /// Update message status
+    pub fn update_message_status(
+        &self,
+        topic: &str,
+        id: u64,
+        status: MessageStatus,
+        error: Option<String>,
+    ) -> Result<bool, String> {
+        let mut messages = self.messages.write().map_err(|e| {
+            format!("Failed to acquire write lock for messages: {}", e)
+        })?;
+
+        let topic_messages = match messages.get_mut(topic) {
+            Some(msgs) => msgs,
+            None => return Ok(false),
+        };
+
+        // Find message by ID and update status
+        for msg in topic_messages.iter_mut() {
+            if msg.id == id {
+                msg.status = status;
+                msg.error = error;
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Mark message as processing
+    pub fn mark_message_processing(&self, topic: &str, id: u64) -> Result<bool, String> {
+        self.update_message_status(topic, id, MessageStatus::Processing, None)
+    }
+
+    /// Mark message as processed
+    pub fn mark_message_processed(&self, topic: &str, id: u64) -> Result<bool, String> {
+        self.update_message_status(topic, id, MessageStatus::Processed, None)
+    }
+
+    /// Mark message as failed
+    pub fn mark_message_failed(&self, topic: &str, id: u64, error: String) -> Result<bool, String> {
+        self.update_message_status(topic, id, MessageStatus::Failed, Some(error))
+    }
+
+    /// Query messages by status
+    pub fn query_messages_by_status(&self, query: &MessageQuery, status: MessageStatus) -> Result<Vec<MessageData>, String> {
+        let messages = self.query_messages(query)?;
+
+        // Filter messages by status
+        let filtered_messages = messages.into_iter()
+            .filter(|msg| msg.status == status)
+            .collect();
+
+        Ok(filtered_messages)
+    }
+
+    /// Get all topics
+    pub fn get_all_topics(&self) -> Result<Vec<String>, String> {
+        let messages = self.messages.read().map_err(|e| {
+            format!("Failed to acquire read lock for messages: {}", e)
+        })?;
+
+        let topics = messages.keys().cloned().collect();
+
+        Ok(topics)
     }
 }
 

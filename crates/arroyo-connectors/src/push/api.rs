@@ -63,6 +63,7 @@ pub async fn handle_push(
 
     // Create push message
     let message = PushMessage {
+        id: 0, // Will be assigned by the message store
         topic: topic.clone(),
         data: body.to_vec(),
         timestamp: SystemTime::now(),
@@ -158,22 +159,55 @@ pub async fn handle_push(
                 }
             }
 
+            // Get the message ID and status from the message store
+            let message_id = if let Some(message_store) = connector.message_store() {
+                // Get the latest message for this topic
+                let query = MessageQuery {
+                    topic: topic.clone(),
+                    limit: 1,
+                    offset: 0,
+                    start_time: None,
+                    end_time: None,
+                };
+
+                match message_store.query_messages(&query) {
+                    Ok(messages) if !messages.is_empty() => {
+                        let message = &messages[0];
+                        Some(serde_json::json!({
+                            "id": message.id,
+                            "status": message.status,
+                            "timestamp": message.timestamp
+                        }))
+                    },
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            let mut response = serde_json::json!({
+                "success": true,
+                "message": "Message received",
+                "timestamp": SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                "processing_time_ms": processing_time
+            });
+
+            // Add message ID and status if available
+            if let Some(message_info) = message_id {
+                response["message_id"] = message_info["id"].clone();
+                response["message_status"] = message_info["status"].clone();
+            }
+
             (
                 StatusCode::OK,
-                Json(serde_json::json!({
-                    "success": true,
-                    "message": "Message received",
-                    "timestamp": SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                    "processing_time_ms": processing_time
-                })),
+                Json(response),
             ).into_response()
         }
         Err(e) => {
             error!("Failed to send message: {}", e);
-            success = false;
 
             // Record processing time and error
             let processing_time = start_time.elapsed().as_millis() as u64;
@@ -183,12 +217,49 @@ pub async fn handle_push(
                 }
             }
 
+            // Get the message ID and status from the message store
+            let message_id = if let Some(message_store) = connector.message_store() {
+                // Get the latest message for this topic
+                let query = MessageQuery {
+                    topic: topic.clone(),
+                    limit: 1,
+                    offset: 0,
+                    start_time: None,
+                    end_time: None,
+                };
+
+                match message_store.query_messages(&query) {
+                    Ok(messages) if !messages.is_empty() => {
+                        let message = &messages[0];
+                        Some(serde_json::json!({
+                            "id": message.id,
+                            "status": message.status,
+                            "error": message.error
+                        }))
+                    },
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            let mut response = serde_json::json!({
+                "error": format!("Failed to process message: {}", e),
+                "processing_time_ms": processing_time
+            });
+
+            // Add message ID and status if available
+            if let Some(message_info) = message_id {
+                response["message_id"] = message_info["id"].clone();
+                response["message_status"] = message_info["status"].clone();
+                if message_info["error"].is_string() {
+                    response["message_error"] = message_info["error"].clone();
+                }
+            }
+
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "error": format!("Failed to process message: {}", e),
-                    "processing_time_ms": processing_time
-                })),
+                Json(response),
             ).into_response()
         }
     }

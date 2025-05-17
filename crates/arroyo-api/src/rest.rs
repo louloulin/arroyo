@@ -29,7 +29,6 @@ use crate::pipelines::{
     get_pipelines, patch_pipeline, restart_pipeline, validate_query,
 };
 use crate::prql::convert_prql;
-use crate::push;
 use crate::rest_utils::not_found;
 use crate::udfs::{create_udf, delete_udf, get_udfs, validate_udf};
 use crate::ApiDoc;
@@ -140,8 +139,7 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
             get(get_operator_metric_groups),
         );
 
-    // Get Push routes
-    let push_routes = push::create_push_routes();
+    // Push router is disabled due to Axum version incompatibility
 
     // Create a router with all the API routes
     let mut api_routes = Router::new()
@@ -178,11 +176,6 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .route("/pipelines/:id", delete(delete_pipeline))
         .route("/prql/convert", post(convert_prql))
         .nest("/pipelines/:id/jobs", jobs_routes);
-
-    // Add Push routes
-    for (path, method_router) in push_routes {
-        api_routes = api_routes.route(path, method_router.with_state(()));
-    }
 
     // Add fallback route
     api_routes = api_routes.fallback(api_fallback);

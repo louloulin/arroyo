@@ -19,7 +19,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::sleep;
 use tracing::{debug, info, warn, error};
 
-use crate::push::auth::{AuthConfig, AuthService};
+use crate::push::auth::AuthConfig;
 use crate::push::converter::PushMessageConverter;
 use crate::push::http::{HttpServer, HttpServerConfig};
 use crate::push::{PushConfig, PushTable};
@@ -27,8 +27,13 @@ use crate::push::{PushConfig, PushTable};
 /// Message received from external systems
 #[derive(Debug, Clone)]
 pub struct PushMessage {
+    /// Message ID (0 means not assigned yet)
+    pub id: u64,
+    /// Topic name
     pub topic: String,
+    /// Message data
     pub data: Vec<u8>,
+    /// Message timestamp
     pub timestamp: SystemTime,
 }
 
@@ -67,6 +72,10 @@ impl PushSourceFunc {
         table: PushTable,
         operator_config: OperatorConfig,
     ) -> Result<ConstructedOperator> {
+        // Log the config and table for debugging
+        tracing::debug!("Creating operator with config: {:?}", config);
+        tracing::debug!("Creating operator with table: {:?}", table);
+
         let buffer_size = match config.buffer_size {
             Some(size) => size,
             None => 10 * 1024 * 1024,
@@ -220,6 +229,16 @@ impl PushSourceFunc {
             &[],
         );
 
+        // Register message sender in global registry
+        if let Some(tx) = self.message_tx.clone() {
+            if let Ok(mut senders) = crate::push::MESSAGE_SENDERS.write() {
+                info!("Registering message sender for topic {}", self.topic);
+                senders.insert(self.topic.clone(), tx);
+            } else {
+                error!("Failed to acquire write lock on MESSAGE_SENDERS");
+            }
+        }
+
         // Start the protocol server
         self.start_protocol_server().await?;
 
@@ -277,6 +296,14 @@ impl PushSourceFunc {
 
                             // Abort buffer task
                             buffer_task.abort();
+
+                            // Unregister message sender from global registry
+                            if let Ok(mut senders) = crate::push::MESSAGE_SENDERS.write() {
+                                info!("Unregistering message sender for topic {}", self.topic);
+                                senders.remove(&self.topic);
+                            } else {
+                                error!("Failed to acquire write lock on MESSAGE_SENDERS");
+                            }
 
                             return Ok(SourceFinishType::Immediate);
                         }

@@ -134,6 +134,7 @@ impl HttpServer {
 
         // Create push message
         let message = PushMessage {
+            id: 0, // Will be assigned by the message store
             topic: topic.clone(),
             data: body.to_vec(),
             timestamp: SystemTime::now(),

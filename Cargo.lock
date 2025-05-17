@@ -567,6 +567,7 @@ dependencies = [
  "mongodb",
  "nkeys 0.3.2",
  "object_store",
+ "once_cell",
  "parquet",
  "prost",
  "rabbitmq-stream-client",
