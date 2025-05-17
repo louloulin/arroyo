@@ -315,7 +315,7 @@ impl PushSourceFunc {
                                 .await
                                 .expect("should have table p in push source");
 
-                            s.insert((), self.state.clone());
+                            let _ = s.insert((), self.state.clone());
 
                             // Acknowledge checkpoint
                             ctx.control_tx.send(arroyo_rpc::ControlResp::CheckpointCompleted(

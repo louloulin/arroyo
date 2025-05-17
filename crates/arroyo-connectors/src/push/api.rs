@@ -25,7 +25,6 @@ pub async fn handle_push(
 
     // Start processing time measurement
     let start_time = std::time::Instant::now();
-    let mut success = true;
 
     // Validate message
     if let Err(e) = connector.message_validator().validate(&topic, &body) {
@@ -81,7 +80,6 @@ pub async fn handle_push(
 
             if let Err(e) = connector.topic_manager().create_topic(request) {
                 error!("Failed to create topic: {}", e);
-                success = false;
 
                 // Record processing time and error
                 let processing_time = start_time.elapsed().as_millis() as u64;
@@ -102,7 +100,6 @@ pub async fn handle_push(
             // Try to record message again
             if let Err(e) = connector.topic_manager().record_message(&topic, body.len()) {
                 error!("Failed to record message: {}", e);
-                success = false;
 
                 // Record processing time and error
                 let processing_time = start_time.elapsed().as_millis() as u64;
@@ -121,7 +118,6 @@ pub async fn handle_push(
             }
         } else {
             error!("Failed to record message: {}", e);
-            success = false;
 
             // Record processing time and error
             let processing_time = start_time.elapsed().as_millis() as u64;

@@ -47,7 +47,7 @@ fn parse_http_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Erro
 
     // Add HTTP config to options if any options were found
     if !http_config.is_empty() {
-        options.insert_str("http_config", &serde_json::to_string(&http_config)?);
+        let _ = options.insert_str("http_config", &serde_json::to_string(&http_config)?);
     }
 
     Ok(())
@@ -71,7 +71,7 @@ fn parse_quic_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Erro
 
     // Add QUIC config to options if any options were found
     if !quic_config.is_empty() {
-        options.insert_str("quic_config", &serde_json::to_string(&quic_config)?);
+        let _ = options.insert_str("quic_config", &serde_json::to_string(&quic_config)?);
     }
 
     Ok(())
@@ -95,7 +95,7 @@ fn parse_grpc_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Erro
 
     // Add gRPC config to options if any options were found
     if !grpc_config.is_empty() {
-        options.insert_str("grpc_config", &serde_json::to_string(&grpc_config)?);
+        let _ = options.insert_str("grpc_config", &serde_json::to_string(&grpc_config)?);
     }
 
     Ok(())
@@ -119,7 +119,7 @@ fn parse_websocket_options(options: &mut ConnectorOptions) -> Result<(), anyhow:
 
     // Add WebSocket config to options if any options were found
     if !websocket_config.is_empty() {
-        options.insert_str("websocket_config", &serde_json::to_string(&websocket_config)?);
+        let _ = options.insert_str("websocket_config", &serde_json::to_string(&websocket_config)?);
     }
 
     Ok(())
@@ -133,7 +133,7 @@ pub fn validate_protocol_options(options: &mut ConnectorOptions) -> Result<(), a
         .unwrap_or_else(|| "http".to_string());
 
     // Re-insert the protocol option since we removed it
-    options.insert_str("protocol", &protocol_clone);
+    let _ = options.insert_str("protocol", &protocol_clone);
 
     // Check if topic exists, but don't remove it
     let has_topic = options.contains_key("topic");

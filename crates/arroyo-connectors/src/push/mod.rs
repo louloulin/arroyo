@@ -281,21 +281,20 @@ impl PushConnector {
             timestamp: std::time::SystemTime::now(),
         };
 
-        // Track if message was sent to any channel
-        let mut message_sent = false;
+        // Message processing tracking
+        let _message_processed = true;
 
         // Send message to channel if available
         if let Some(tx) = &self.message_tx {
             if let Err(e) = tx.send(message.clone()).await {
                 tracing::error!("Failed to send message to channel: {}", e);
             } else {
-                message_sent = true;
                 tracing::debug!("Message sent to direct channel for topic {}", topic);
             }
         }
 
-        // Try to send message using global registry if not already sent
-        if !message_sent {
+        // Try to send message using global registry
+        {
             // Get the sender from the global registry without holding the lock across await
             let tx_opt = {
                 if let Ok(senders) = MESSAGE_SENDERS.read() {
@@ -310,7 +309,6 @@ impl PushConnector {
                 if let Err(e) = tx.send(message.clone()).await {
                     tracing::error!("Failed to send message to global channel: {}", e);
                 } else {
-                    message_sent = true;
                     tracing::debug!("Message sent to global registry channel for topic {}", topic);
                 }
             }
@@ -319,11 +317,12 @@ impl PushConnector {
         // Store message in message store
         if let Err(e) = self.message_store.store_message(&message.topic, message.data.clone()) {
             tracing::error!("Failed to store message: {}", e);
+        } else {
+            tracing::debug!("Message stored in message store for topic {}", topic);
         }
 
         // Update metrics
-        let processing_time_ms = start_time.elapsed().as_millis() as u64;
-        if let Err(e) = self.metrics_manager.record_message_with_details(topic, body.len(), processing_time_ms, message_sent) {
+        if let Err(e) = self.metrics_manager.record_message(topic, body.len()) {
             tracing::error!("Failed to record message metrics: {}", e);
         }
 
