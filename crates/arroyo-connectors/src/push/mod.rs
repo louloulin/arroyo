@@ -244,6 +244,108 @@ impl PushConnector {
         self.message_tx = Some(tx);
     }
 
+    /// Handle push requests
+    pub async fn handle_push(&self, topic: &str, body: axum::body::Bytes) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        use axum::http::StatusCode;
+        use axum::Json;
+
+        // Start processing time measurement
+        let start_time = std::time::Instant::now();
+
+        // Validate message size
+        if body.len() > self.config.max_message_size {
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(serde_json::json!({
+                    "error": format!("Message size exceeds maximum allowed size of {} bytes", self.config.max_message_size)
+                })),
+            ).into_response();
+        }
+
+        // Check if topic exists
+        if let Err(_) = self.topic_manager.get_topic(topic) {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "error": format!("Topic not found: {}", topic)
+                })),
+            ).into_response();
+        }
+
+        // Create push message
+        let message = source::PushMessage {
+            id: 0, // Will be assigned by the message store
+            topic: topic.to_string(),
+            data: body.to_vec(),
+            timestamp: std::time::SystemTime::now(),
+        };
+
+        // Track if message was sent to any channel
+        let mut message_sent = false;
+
+        // Send message to channel if available
+        if let Some(tx) = &self.message_tx {
+            if let Err(e) = tx.send(message.clone()).await {
+                tracing::error!("Failed to send message to channel: {}", e);
+            } else {
+                message_sent = true;
+                tracing::debug!("Message sent to direct channel for topic {}", topic);
+            }
+        }
+
+        // Try to send message using global registry if not already sent
+        if !message_sent {
+            // Get the sender from the global registry without holding the lock across await
+            let tx_opt = {
+                if let Ok(senders) = MESSAGE_SENDERS.read() {
+                    senders.get(topic).cloned()
+                } else {
+                    None
+                }
+            };
+
+            // Now send the message if we have a sender
+            if let Some(tx) = tx_opt {
+                if let Err(e) = tx.send(message.clone()).await {
+                    tracing::error!("Failed to send message to global channel: {}", e);
+                } else {
+                    message_sent = true;
+                    tracing::debug!("Message sent to global registry channel for topic {}", topic);
+                }
+            }
+        }
+
+        // Store message in message store
+        if let Err(e) = self.message_store.store_message(&message.topic, message.data.clone()) {
+            tracing::error!("Failed to store message: {}", e);
+        }
+
+        // Update metrics
+        let processing_time_ms = start_time.elapsed().as_millis() as u64;
+        if let Err(e) = self.metrics_manager.record_message_with_details(topic, body.len(), processing_time_ms, message_sent) {
+            tracing::error!("Failed to record message metrics: {}", e);
+        }
+
+        // Get elapsed time for response
+        let elapsed = start_time.elapsed();
+
+        // Return response
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "topic": topic,
+                "message_size": body.len(),
+                "processing_time_ms": elapsed.as_millis(),
+                "timestamp": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+            })),
+        ).into_response()
+    }
+
     /// Send a message
     pub async fn send_message(&self, mut message: source::PushMessage) -> Result<()> {
         let topic = message.topic.clone();

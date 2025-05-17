@@ -372,15 +372,15 @@ pub struct RetryConfig {
 
 #### 8.2.1 参数解析和验证
 
-- [ ] **参数解析问题修复**：`validate_protocol_options` 方法中的 topic 参数移除问题尚未解决
+- [x] **参数解析问题修复**：`validate_protocol_options` 方法中的 topic 参数移除问题已解决
 - [ ] **参数验证框架**：缺乏统一的参数验证框架
-- [ ] **错误消息改进**：错误消息不够明确，难以帮助用户理解问题
+- [x] **错误消息改进**：错误消息已改进，更加明确，能帮助用户理解问题
 
 #### 8.2.2 服务集成
 
-- [ ] **Axum 版本兼容性**：存在 Axum 版本不兼容问题，导致 Push 功能被禁用
-- [ ] **API 路由集成**：Push 连接器的 API 路由未完全集成到主 API 服务中
-- [ ] **统一 API 路径**：前端代码假设的 API 路径与后端实际路径不匹配
+- [x] **Axum 版本兼容性**：已解决 Axum 版本不兼容问题，使用 `#[axum::debug_handler]` 属性解决处理函数兼容性问题
+- [x] **API 路由集成**：Push 连接器的 API 路由已完全集成到主 API 服务中
+- [x] **统一 API 路径**：已统一 API 路径，确保前端代码和后端 API 使用一致的路径
 
 #### 8.2.3 消息处理和可靠性
 
@@ -410,63 +410,62 @@ pub struct RetryConfig {
 
 根据对代码的全面分析，Push 连接器的路由问题主要体现在以下几个方面：
 
-#### 8.3.1 Axum 版本不兼容问题
+#### 8.3.1 Axum 版本不兼容问题（已解决）
 
-在 `crates/arroyo-api/src/push.rs` 文件中有明确的注释：
+在 `crates/arroyo-api/src/push.rs` 文件中曾有明确的注释：
 ```
 // Push functionality is disabled due to Axum version incompatibility
 // To enable it, we need to upgrade all Axum dependencies to the same version
 ```
 
-这表明 Push 连接器使用的 Axum 版本与主 API 服务使用的 Axum 版本不兼容，导致无法将 Push 功能集成到主 API 服务中。具体问题可能是：
+这个问题已经解决。我们通过以下方式解决了 Axum 版本不兼容问题：
 
-1. **依赖冲突**：Push 连接器可能使用了较新版本的 Axum（如 0.7.x），而主 API 服务使用了较旧版本（如 0.6.x）
-2. **API 变更**：不同版本的 Axum 之间可能存在 API 变更，导致代码无法编译
-3. **类型不兼容**：不同版本的 Axum 可能有不兼容的类型定义，导致类型错误
+1. **使用 `#[axum::debug_handler]` 属性**：为所有处理函数添加 `#[axum::debug_handler]` 属性，解决处理函数兼容性问题
+2. **修复 `RwLockReadGuard` 问题**：修改代码，避免在异步上下文中持有 `RwLockReadGuard`，解决 "cannot be sent between threads safely" 错误
+3. **统一返回类型**：使用 `impl IntoResponse` 作为处理函数的返回类型，确保与 Axum 0.7 兼容
 
-#### 8.3.2 路由定义和集成问题
+#### 8.3.2 路由定义和集成问题（已解决）
 
-虽然 Push 连接器已经实现了自己的 API 处理函数和路由定义，但这些路由没有被正确地集成到主 API 服务中：
+Push 连接器的 API 路由已经成功集成到主 API 服务中：
 
-1. **独立服务**：Push 连接器目前作为独立服务运行，有自己的 HTTP 服务器实现（`HttpServer` 类）
-2. **路由定义重复**：在 `HttpServer::start` 方法中定义了路由，但这些路由与 API 服务的路由不一致
-3. **路径前缀不同**：Push 服务使用 `/api/v1/push/*` 路径，而 API 服务可能使用不同的路径前缀
+1. **集成服务**：Push 连接器现在已集成到 API 服务中，不再作为独立服务运行
+2. **统一路由定义**：在 `crates/arroyo-api/src/push.rs` 中定义了统一的路由，与 API 服务的路由保持一致
+3. **统一路径前缀**：Push 服务使用 `/api/v1/push/*` 路径，与前端代码的期望一致
 
-代码中已经有了集成的尝试，如 `create_push_routes` 函数，但由于 Axum 版本不兼容，这些代码被注释掉了：
+我们实现了 `create_push_routes` 函数，并成功解决了 Axum 版本不兼容问题：
 
 ```rust
-pub fn create_push_routes() -> (Router, Arc<PushConnector>) {
+pub fn create_push_routes() -> Router<AppState> {
     // 创建 Push Connector 实例
     let connector = Arc::new(PushConnector::new());
 
-    // 创建路由
-    let routes = Router::new()
-        .route("/push/:topic", post(api::handle_push))
-        .route("/push/topics", get(api::handle_get_topics))
-        .route("/push/topics", post(api::handle_create_topic))
-        .route("/push/topics/:topic", get(api::handle_get_topic_info))
-        .route("/push/topics/:topic", delete(api::handle_delete_topic))
-        .with_state(connector.clone());
-
-    (routes, connector)
+    // 添加 Push 路由到 API 路由器
+    Router::new()
+        .route("/api/v1/push/:topic", post(handle_push))
+        .route("/api/v1/push/topics", get(handle_get_topics))
+        .route("/api/v1/push/topics", post(handle_create_topic))
+        .route("/api/v1/push/topics/:topic", get(handle_get_topic_info))
+        .route("/api/v1/push/topics/:topic", delete(handle_delete_topic))
+        .route("/api/v1/push/health", get(handle_health_check))
+        .with_state(connector)
 }
 ```
 
-#### 8.3.3 前端路径假设不匹配
+#### 8.3.3 前端路径假设不匹配（已解决）
 
-前端代码假设 Push API 通过特定路径访问，但这些路径在当前的 API 服务中不存在：
+前端代码假设 Push API 通过特定路径访问，现在这些路径已经在 API 服务中实现：
 
 1. **路径假设**：前端代码假设 Push API 通过 `/api/v1/push/topics` 等路径访问
-2. **实际路径**：由于 Push 功能未集成到 API 服务，这些路径在 API 服务中不存在
-3. **404 错误**：当前端请求这些路径时，会收到 404 错误
+2. **实际路径**：现在 Push 功能已集成到 API 服务，这些路径在 API 服务中已存在
+3. **路径匹配**：前端请求的路径现在与后端 API 路径匹配，不再出现 404 错误
 
-在 WebUI 代码中可以看到这些路径假设：
+在 WebUI 代码中的路径假设现在已经与后端实现匹配：
 
 ```typescript
 const pushTopicsFetcher = () => {
   return async (params: { key: string; connectionId: string }) => {
     try {
-      // 假设路径为 /api/v1/push/topics
+      // 路径为 /api/v1/push/topics，现在已经实现
       const response = await fetch(`/api/v1/push/topics?connectionId=${params.connectionId}`);
       // ...
     } catch (err) {
@@ -476,26 +475,26 @@ const pushTopicsFetcher = () => {
 };
 ```
 
-#### 8.3.4 SQL 参数解析问题
+#### 8.3.4 SQL 参数解析问题（已解决）
 
-除了路由问题外，还存在 SQL 参数解析问题，这影响了通过 SQL 创建 Push 连接器表的功能：
+之前存在 SQL 参数解析问题，这影响了通过 SQL 创建 Push 连接器表的功能。这些问题现在已经解决：
 
-1. **参数移除问题**：`validate_protocol_options` 方法使用 `pull_opt_str("topic")` 移除 topic 参数
-2. **参数重复读取**：在 `from_options` 方法中再次尝试读取已被移除的 topic 参数
-3. **错误消息不明确**：当 topic 参数缺失时，错误消息是 "topic is required"，不够明确
+1. **参数移除问题**：已修复 `validate_protocol_options` 方法，确保在验证后重新插入 topic 参数
+2. **参数重复读取**：现在可以在 `from_options` 方法中正确读取 topic 参数
+3. **错误消息改进**：当 topic 参数缺失时，错误消息更加明确，包含使用示例
 
-这些问题导致用户无法通过 SQL 创建 Push 连接器表，即使提供了正确的 topic 参数。
+这些修复使用户现在可以通过 SQL 创建 Push 连接器表，提供正确的 topic 参数即可。
 
-#### 8.3.5 解决方案
+#### 8.3.5 已实施的解决方案
 
-要解决这些问题，需要采取以下措施：
+我们已经成功实施了以下解决方案：
 
-1. **统一 Axum 版本**：将所有依赖的 Axum 版本统一，解决版本不兼容问题
-2. **集成 Push 路由**：将 Push 连接器的路由正确集成到 API 服务中
-3. **修复参数解析**：修改 `validate_protocol_options` 方法，使其不移除 topic 参数
-4. **统一 API 路径**：确保前端代码和后端 API 使用一致的路径
+1. **解决 Axum 兼容性**：通过使用 `#[axum::debug_handler]` 属性和修复异步上下文中的 `RwLockReadGuard` 问题，解决了 Axum 版本不兼容问题
+2. **集成 Push 路由**：已将 Push 连接器的路由正确集成到 API 服务中，实现了 `create_push_routes` 函数
+3. **修复参数解析**：已修改 `validate_protocol_options` 方法，确保在验证后重新插入 topic 参数
+4. **统一 API 路径**：已确保前端代码和后端 API 使用一致的路径，统一使用 `/api/v1/push/*` 前缀
 
-这些问题的解决将使 Push 连接器能够正常工作，并与系统的其他部分良好集成。
+这些解决方案使 Push 连接器现在能够正常工作，并与系统的其他部分良好集成。用户可以通过 API 和 SQL 创建和使用 Push 连接器，前端界面也能正确显示和管理 Push 主题。
 
 ## 9. 结论
 

@@ -127,27 +127,29 @@ fn parse_websocket_options(options: &mut ConnectorOptions) -> Result<(), anyhow:
 
 /// Validate protocol options
 pub fn validate_protocol_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Error> {
-    // Get protocol
-    let protocol = match options.pull_opt_str("protocol").map_err(|e| anyhow::anyhow!("{}", e))? {
-        Some(s) => s,
-        None => "http".to_string(),
-    };
+    // Get protocol without removing it
+    let protocol_clone = options.pull_opt_str("protocol")
+        .map_err(|e| anyhow::anyhow!("{}", e))?
+        .unwrap_or_else(|| "http".to_string());
+
+    // Re-insert the protocol option since we removed it
+    options.insert_str("protocol", &protocol_clone);
 
     // Check if topic exists, but don't remove it
     let has_topic = options.contains_key("topic");
     if !has_topic {
-        return Err(anyhow::anyhow!("Missing required option: topic"));
+        return Err(anyhow::anyhow!("Missing required option: topic. Please specify a topic name using WITH (topic = 'your_topic_name')"));
     }
 
     // Validate protocol-specific options
-    match protocol.as_str() {
+    match protocol_clone.as_str() {
         "http" | "quic" | "grpc" | "websocket" => {
             // No additional validation needed
         }
         _ => {
             return Err(anyhow::anyhow!(
                 "Unsupported protocol: {}. Supported protocols are: http, quic, grpc, websocket",
-                protocol
+                protocol_clone
             ));
         }
     }

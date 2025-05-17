@@ -128,6 +128,9 @@ mod tests {
         // Check that topic is still present after validation
         assert!(options.contains_key("topic"), "Topic should still be present after validation");
 
+        // Check that protocol is still present after validation
+        assert!(options.contains_key("protocol"), "Protocol should still be present after validation");
+
         // Create invalid options (missing topic)
         let invalid_sql_options = vec![
             SqlOption::KeyValue {
@@ -142,7 +145,13 @@ mod tests {
         let mut invalid_options = ConnectorOptions::try_from(&invalid_sql_options).unwrap();
 
         // Validate options
-        assert!(sql::validate_protocol_options(&mut invalid_options).is_err());
+        let err = sql::validate_protocol_options(&mut invalid_options);
+        assert!(err.is_err());
+        let err_msg = err.unwrap_err().to_string();
+        assert!(err_msg.contains("Missing required option: topic"),
+                "Error message should mention missing topic: {}", err_msg);
+        assert!(err_msg.contains("WITH (topic = "),
+                "Error message should provide usage hint: {}", err_msg);
 
         // Create invalid options (invalid protocol)
         let invalid_protocol_sql_options = vec![
@@ -165,7 +174,13 @@ mod tests {
         let mut invalid_protocol = ConnectorOptions::try_from(&invalid_protocol_sql_options).unwrap();
 
         // Validate options
-        assert!(sql::validate_protocol_options(&mut invalid_protocol).is_err());
+        let err = sql::validate_protocol_options(&mut invalid_protocol);
+        assert!(err.is_err());
+        let err_msg = err.unwrap_err().to_string();
+        assert!(err_msg.contains("Unsupported protocol"),
+                "Error message should mention unsupported protocol: {}", err_msg);
+        assert!(err_msg.contains("Supported protocols are"),
+                "Error message should list supported protocols: {}", err_msg);
 
         Ok(())
     }
