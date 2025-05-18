@@ -1,4 +1,5 @@
 use axum::response::{Html, IntoResponse, Response};
+use std::sync::Arc;
 use axum::{
     routing::{delete, get, patch, post},
     Json, Router,
@@ -175,8 +176,17 @@ pub fn create_rest_app(database: DatabaseSource, controller_addr: &str) -> Route
         .route("/prql/convert", post(convert_prql))
         .nest("/pipelines/:id/jobs", jobs_routes);
 
-    // Add Push routes
-    api_routes = api_routes.merge(crate::push::create_push_routes());
+    // Add Push routes directly
+    let connector = Arc::new(arroyo_connectors::push::PushConnector::new());
+
+    // Add Push routes directly to the API router
+    api_routes = api_routes
+        .route("/push/health", get(crate::push::handle_health_check).with_state(connector.clone()))
+        .route("/push/topics", get(crate::push::handle_get_topics).with_state(connector.clone()))
+        .route("/push/topics", post(crate::push::handle_create_topic).with_state(connector.clone()))
+        .route("/push/topics/:topic", get(crate::push::handle_get_topic_info).with_state(connector.clone()))
+        .route("/push/topics/:topic", delete(crate::push::handle_delete_topic).with_state(connector.clone()))
+        .route("/push/:topic", post(crate::push::handle_push).with_state(connector.clone()));
 
     // Add fallback route
     api_routes = api_routes.fallback(api_fallback);

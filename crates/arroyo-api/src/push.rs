@@ -17,12 +17,12 @@ pub fn create_push_routes() -> Router<AppState> {
 
     // Add Push routes to the API router
     Router::new()
-        .route("/push/:topic", post(handle_push))
-        .route("/push/topics", get(handle_get_topics))
-        .route("/push/topics", post(handle_create_topic))
-        .route("/push/topics/:topic", get(handle_get_topic_info))
-        .route("/push/topics/:topic", delete(handle_delete_topic))
-        .route("/push/health", get(handle_health_check))
+        .route("/:topic", post(handle_push))
+        .route("/topics", get(handle_get_topics))
+        .route("/topics", post(handle_create_topic))
+        .route("/topics/:topic", get(handle_get_topic_info))
+        .route("/topics/:topic", delete(handle_delete_topic))
+        .route("/health", get(handle_health_check))
         .with_state(connector)
 }
 
@@ -145,12 +145,16 @@ pub async fn handle_delete_topic(
 
 /// Handle health check request
 #[axum::debug_handler]
-pub async fn handle_health_check() -> impl IntoResponse {
+pub async fn handle_health_check(
+    State(_connector): State<Arc<PushConnector>>,
+) -> impl IntoResponse {
+    // Return health status
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({
             "status": "ok",
-            "version": env!("CARGO_PKG_VERSION")
+            "version": env!("CARGO_PKG_VERSION"),
+            "topics": "available"
         })),
     )
 }
