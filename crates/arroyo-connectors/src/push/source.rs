@@ -101,10 +101,10 @@ impl PushSourceFunc {
         );
 
         // HTTP server is no longer needed as Push functionality is integrated into the API service
-        let http_server = None;
+        let http_server: Option<HttpServer> = None;
 
         // Create converter
-        let converter = None; // TODO: Implement schema conversion
+        let converter: Option<crate::push::converter::PushMessageConverter> = None; // TODO: Implement schema conversion
 
         Ok(ConstructedOperator::from_source(Box::new(PushSourceFunc {
             topic: table.topic,

@@ -17,12 +17,12 @@ pub fn create_push_routes() -> Router<AppState> {
 
     // Add Push routes to the API router
     Router::new()
-        .route("/api/v1/push/:topic", post(handle_push))
-        .route("/api/v1/push/topics", get(handle_get_topics))
-        .route("/api/v1/push/topics", post(handle_create_topic))
-        .route("/api/v1/push/topics/:topic", get(handle_get_topic_info))
-        .route("/api/v1/push/topics/:topic", delete(handle_delete_topic))
-        .route("/api/v1/push/health", get(handle_health_check))
+        .route("/push/:topic", post(handle_push))
+        .route("/push/topics", get(handle_get_topics))
+        .route("/push/topics", post(handle_create_topic))
+        .route("/push/topics/:topic", get(handle_get_topic_info))
+        .route("/push/topics/:topic", delete(handle_delete_topic))
+        .route("/push/health", get(handle_health_check))
         .with_state(connector)
 }
 
