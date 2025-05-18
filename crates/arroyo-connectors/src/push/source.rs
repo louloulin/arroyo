@@ -57,7 +57,7 @@ pub struct PushSourceFunc {
     pub state: PushSourceState,
     pub message_rx: Option<Receiver<PushMessage>>,
     pub message_tx: Option<Sender<PushMessage>>,
-    pub http_server: Option<HttpServer>,
+    // http_server field removed as Push functionality is integrated into the API service
     pub auth_config: Option<AuthConfig>,
     pub memory_buffer: Option<Arc<crate::push::buffer::MemoryBuffer>>,
     pub backpressure_controller: Option<Arc<crate::push::backpressure::BackpressureController>>,
@@ -100,30 +100,8 @@ impl PushSourceFunc {
             Duration::from_millis(100), // 100ms max wait time
         );
 
-        // Create HTTP server if protocol is HTTP
-        let http_server = if table.protocol == "http" {
-            let port = table.http_config.as_ref()
-                .and_then(|config| config.get("port"))
-                .map_or("8000", |v| v.as_str());
-            let timeout = table.http_config.as_ref()
-                .and_then(|config| config.get("timeout"))
-                .map_or("30", |v| v.as_str());
-            let max_connections = table.http_config.as_ref()
-                .and_then(|config| config.get("max_connections"))
-                .map_or("100", |v| v.as_str());
-
-            let server_config = HttpServerConfig {
-                addr: format!("0.0.0.0:{}", port).parse()
-                    .map_err(|e| anyhow::anyhow!("Invalid HTTP server address: {}", e))?,
-                timeout: timeout.parse()
-                    .map_err(|e| anyhow::anyhow!("Invalid HTTP timeout: {}", e))?,
-                max_connections: max_connections.parse()
-                    .map_err(|e| anyhow::anyhow!("Invalid HTTP max connections: {}", e))?,
-            };
-            Some(HttpServer::new(server_config))
-        } else {
-            None
-        };
+        // HTTP server is no longer needed as Push functionality is integrated into the API service
+        let http_server = None;
 
         // Create converter
         let converter = None; // TODO: Implement schema conversion
@@ -139,7 +117,7 @@ impl PushSourceFunc {
             state: PushSourceState::default(),
             message_rx: Some(rx),
             message_tx: Some(tx),
-            http_server,
+            // http_server field removed as Push functionality is integrated into the API service
             auth_config: None, // TODO: Map authentication from config
             memory_buffer: Some(memory_buffer),
             backpressure_controller: Some(backpressure_controller),
@@ -148,68 +126,27 @@ impl PushSourceFunc {
         })))
     }
 
-    /// Start the appropriate protocol server based on configuration
+    /// Register with the global message registry instead of starting a separate server
     async fn start_protocol_server(&mut self) -> Result<(), UserError> {
-        match self.protocol.as_str() {
-            "http" => {
-                info!("Starting HTTP server for topic {}", self.topic);
+        // Log that we're using the integrated Push service
+        info!("Using integrated Push service for topic {}", self.topic);
 
-                if let Some(http_server) = &mut self.http_server {
-                    if let Some(tx) = self.message_tx.clone() {
-                        match http_server.start(tx).await {
-                            Ok(_) => {
-                                info!("HTTP server started successfully");
-                            }
-                            Err(e) => {
-                                return Err(UserError {
-                                    name: "HTTP server error".to_string(),
-                                    details: format!("Failed to start HTTP server: {}", e),
-                                });
-                            }
-                        }
-                    } else {
-                        return Err(UserError {
-                            name: "Configuration error".to_string(),
-                            details: "Message channel not initialized".to_string(),
-                        });
-                    }
-                } else {
-                    return Err(UserError {
-                        name: "Configuration error".to_string(),
-                        details: "HTTP server not initialized".to_string(),
-                    });
-                }
-            }
-            "quic" => {
-                info!("Starting QUIC server for topic {}", self.topic);
-                // TODO: Implement QUIC server
-                return Err(UserError {
-                    name: "Not implemented".to_string(),
-                    details: "QUIC protocol support is not implemented yet".to_string(),
-                });
-            }
-            "grpc" => {
-                info!("Starting gRPC server for topic {}", self.topic);
-                // TODO: Implement gRPC server
-                return Err(UserError {
-                    name: "Not implemented".to_string(),
-                    details: "gRPC protocol support is not implemented yet".to_string(),
-                });
-            }
-            "websocket" => {
-                info!("Starting WebSocket server for topic {}", self.topic);
-                // TODO: Implement WebSocket server
-                return Err(UserError {
-                    name: "Not implemented".to_string(),
-                    details: "WebSocket protocol support is not implemented yet".to_string(),
-                });
-            }
-            _ => {
-                return Err(UserError {
-                    name: "Invalid protocol".to_string(),
-                    details: format!("Unsupported protocol: {}", self.protocol),
-                });
-            }
+        // No need to start a separate server as Push functionality is integrated into the API service
+        // Just register the topic with the global message registry
+        if let Some(tx) = self.message_tx.clone() {
+            // Register the sender in the global MESSAGE_SENDERS registry
+            let mut senders = crate::push::MESSAGE_SENDERS.write().map_err(|e| UserError {
+                name: "Lock error".to_string(),
+                details: format!("Failed to acquire write lock on MESSAGE_SENDERS: {}", e),
+            })?;
+
+            senders.insert(self.topic.clone(), tx);
+            info!("Registered topic {} with global message registry", self.topic);
+        } else {
+            return Err(UserError {
+                name: "Configuration error".to_string(),
+                details: "Message channel not initialized".to_string(),
+            });
         }
 
         Ok(())
@@ -284,12 +221,7 @@ impl PushSourceFunc {
                         ControlMessage::Stop { mode: _ } => {
                             info!("Received stop message");
 
-                            // Stop HTTP server if running
-                            if let Some(http_server) = &mut self.http_server {
-                                if let Err(e) = http_server.stop().await {
-                                    error!("Error stopping HTTP server: {}", e);
-                                }
-                            }
+                            // HTTP server is no longer needed as Push functionality is integrated into the API service
 
                             // Close buffer
                             memory_buffer.close().await;
