@@ -50,7 +50,14 @@ impl ProtocolAdapterFactory {
                     config,
                 )))
             },
-            ProtocolType::Quic => Err(anyhow!("QUIC protocol not implemented yet")),
+            ProtocolType::Quic => {
+                use crate::push::quic::QuicAdapter;
+                Ok(Box::new(QuicAdapter::new(
+                    message_tx,
+                    management_plane,
+                    config,
+                )))
+            },
         }
     }
 }

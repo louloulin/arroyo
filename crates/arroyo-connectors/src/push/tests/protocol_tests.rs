@@ -215,6 +215,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_quic_adapter() {
+        // Create management plane
+        let management_plane = Arc::new(PushManagementPlane::new());
+
+        // Create topic
+        let request = CreateTopicRequest {
+            name: "test-topic".to_string(),
+            retention_period: 3600,
+            compression: false,
+        };
+
+        let result = management_plane.create_topic(request);
+        assert!(result.is_ok());
+
+        // Create channel
+        let (tx, mut rx) = mpsc::channel(100);
+
+        // Create QUIC adapter
+        let adapter = ProtocolAdapterFactory::create(
+            ProtocolType::Quic,
+            tx,
+            management_plane.clone(),
+            HashMap::new(),
+        ).unwrap();
+
+        // Process message
+        let result = adapter.process_message("test-topic", b"test data".to_vec()).await;
+        assert!(result.is_ok());
+
+        // Receive message
+        let message = rx.recv().await.unwrap();
+        assert_eq!(message.topic, "test-topic");
+        assert_eq!(message.data, b"test data");
+    }
+
+    #[tokio::test]
     async fn test_adapter_start_stop() {
         // This test is more of an integration test and would require actual network connections
         // For now, we'll just test that the methods don't panic
@@ -271,6 +307,17 @@ mod tests {
             grpc_config,
         ).unwrap();
 
+        let mut quic_config = HashMap::new();
+        quic_config.insert("host".to_string(), "127.0.0.1".to_string());
+        quic_config.insert("port".to_string(), "18084".to_string());
+
+        let mut quic_adapter = ProtocolAdapterFactory::create(
+            ProtocolType::Quic,
+            tx.clone(),
+            management_plane.clone(),
+            quic_config,
+        ).unwrap();
+
         // Start adapters
         // Note: These might fail if the ports are already in use
         // We're just testing that the methods don't panic
@@ -278,6 +325,7 @@ mod tests {
         let _ = http2_adapter.start().await;
         let _ = ws_adapter.start().await;
         let _ = grpc_adapter.start().await;
+        let _ = quic_adapter.start().await;
 
         // Wait a bit
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -287,5 +335,6 @@ mod tests {
         let _ = http2_adapter.stop().await;
         let _ = ws_adapter.stop().await;
         let _ = grpc_adapter.stop().await;
+        let _ = quic_adapter.stop().await;
     }
 }

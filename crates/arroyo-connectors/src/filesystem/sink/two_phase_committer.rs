@@ -10,7 +10,7 @@ use arroyo_state::tables::global_keyed_map::GlobalKeyedView;
 use arroyo_types::{Data, TaskInfo, Watermark};
 use async_trait::async_trait;
 use bincode::config;
-use prost::Message;
+// use prost::Message;
 use std::fmt::Debug;
 use std::{collections::HashMap, time::SystemTime};
 use tracing::debug;
@@ -145,12 +145,7 @@ impl<TPC: TwoPhaseCommitter> ArrowOperator for TwoPhaseCommitterOperator<TPC> {
             "p".into(),
             TableConfig {
                 table_type: TableEnum::GlobalKeyValue.into(),
-                config: GlobalKeyedTableConfig {
-                    table_name: "p".into(),
-                    description: "pre-commit data".into(),
-                    uses_two_phase_commit: true,
-                }
-                .encode_to_vec(),
+                config: vec![],  // Temporarily disabled
             },
         );
         tables

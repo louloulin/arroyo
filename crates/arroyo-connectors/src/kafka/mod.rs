@@ -32,7 +32,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tokio::time::timeout;
-use tonic::Status;
+// use tonic::Status;
 use tracing::{error, info, warn};
 use typify::import_types;
 
@@ -521,25 +521,25 @@ impl KafkaTester {
     }
 
     #[allow(unused)]
-    pub async fn topic_metadata(&self, topic: &str) -> Result<TopicMetadata, Status> {
+    pub async fn topic_metadata(&self, topic: &str) -> anyhow::Result<TopicMetadata> {
         let client = self
             .connect(None)
             .await
-            .map_err(Status::failed_precondition)?;
+            .map_err(|e| anyhow::anyhow!("Failed precondition: {}", e))?;
 
         let topic = topic.to_string();
         tokio::task::spawn_blocking(move || {
             let metadata = client
                 .fetch_metadata(Some(&topic), Duration::from_secs(5))
                 .map_err(|e| {
-                    Status::failed_precondition(format!(
+                    anyhow::anyhow!(
                         "Failed to read topic metadata from Kafka: {:?}",
                         e
-                    ))
+                    )
                 })?;
 
             let topic_metadata = metadata.topics().iter().next().ok_or_else(|| {
-                Status::failed_precondition("Metadata response from broker did not include topic")
+                anyhow::anyhow!("Metadata response from broker did not include topic")
             })?;
 
             if let Some(e) = topic_metadata.error() {
@@ -552,13 +552,13 @@ impl KafkaTester {
                     }
                     _ => format!("Error while fetching topic metadata: {:?}", e),
                 };
-                return Err(Status::failed_precondition(err));
+                return Err(anyhow::anyhow!("{}", err));
             }
 
             Ok(TopicMetadata {
                 partitions: topic_metadata.partitions().len(),
             })
-        }).map_err(|_| Status::internal("unexpected error while fetching topic metadata")).await?
+        }).map_err(|_| anyhow::anyhow!("unexpected error while fetching topic metadata")).await?
     }
 
     async fn fetch_topics(&self) -> anyhow::Result<Vec<(String, usize)>> {

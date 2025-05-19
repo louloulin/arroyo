@@ -168,6 +168,14 @@ impl TopicManager {
 
         Ok(())
     }
+
+    /// Get the number of topics
+    pub fn topics_count(&self) -> usize {
+        match self.topics.read() {
+            Ok(topics) => topics.len(),
+            Err(_) => 0,
+        }
+    }
 }
 
 /// Check if topic name is valid

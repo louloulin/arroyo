@@ -27,7 +27,8 @@ pub async fn handle_push(
     let start_time = std::time::Instant::now();
 
     // Validate message
-    if let Err(e) = connector.message_validator().validate(&topic, &body) {
+    if let Some(validator) = connector.message_validator() {
+        if let Err(e) = validator.validate(&topic, &body) {
         let (status, message) = match e {
             crate::push::validator::ValidationError::MessageTooLarge(max_size) => (
                 StatusCode::PAYLOAD_TOO_LARGE,
@@ -58,6 +59,7 @@ pub async fn handle_push(
                 "error": message
             })),
         ).into_response();
+        }
     }
 
     // Create push message

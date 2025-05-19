@@ -21,7 +21,7 @@ use arroyo_operator::operator::{ArrowOperator, AsDisplayable, DisplayableOperato
 use arroyo_rpc::df::ArroyoSchema;
 use arroyo_types::CheckpointBarrier;
 use async_trait::async_trait;
-use prost::Message;
+// use prost::Message;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use std::time::{Duration, SystemTime};
 
@@ -254,12 +254,7 @@ impl ArrowOperator for KafkaSinkFunc {
                 "i".to_string(),
                 TableConfig {
                     table_type: TableEnum::GlobalKeyValue.into(),
-                    config: GlobalKeyedTableConfig {
-                        table_name: "i".to_string(),
-                        description: "index for transactional ids".to_string(),
-                        uses_two_phase_commit: true,
-                    }
-                    .encode_to_vec(),
+                    config: vec![],  // Temporarily disabled
                 },
             )
         } else {

@@ -15,11 +15,11 @@ use arroyo_types::{SignalMessage, UserError, Watermark};
 use bincode::{Decode, Encode};
 use futures::{SinkExt, StreamExt};
 use tokio::select;
-use tokio_tungstenite::tungstenite::handshake::client::generate_key;
-use tokio_tungstenite::tungstenite::http::Uri;
-use tokio_tungstenite::{connect_async, tungstenite};
+// use tokio_tungstenite::tungstenite::handshake::client::generate_key;
+// use tokio_tungstenite::tungstenite::http::Uri;
+// use tokio_tungstenite::{connect_async, tungstenite};
 use tracing::{debug, info};
-use tungstenite::http::Request;
+// use tungstenite::http::Request;
 
 #[derive(Clone, Debug, Encode, Decode, PartialEq, PartialOrd, Default)]
 pub struct WebsocketSourceState {}
@@ -144,141 +144,18 @@ impl WebsocketSourceFunc {
         ctx: &mut SourceContext,
         collector: &mut SourceCollector,
     ) -> Result<SourceFinishType, UserError> {
-        let uri = match Uri::from_str(&self.url.to_string()) {
-            Ok(uri) => uri,
-            Err(e) => {
-                ctx.report_error("Failed to parse endpoint".to_string(), format!("{:?}", e))
-                    .await;
-                panic!("Failed to parse endpoint: {:?}", e);
-            }
-        };
+        // WebSocket connection is temporarily disabled
+        ctx.report_error(
+            "WebSocket connection is temporarily disabled".to_string(),
+            "WebSocket support is not available in this build".to_string(),
+        )
+        .await;
+        return Err(UserError::new(
+            "WebSocket connection is temporarily disabled",
+            "WebSocket support is not available in this build",
+        ));
 
-        let host = match uri.host() {
-            Some(host) => host,
-            None => {
-                ctx.report_error("Endpoint must have a host".to_string(), "".to_string())
-                    .await;
-                panic!("Endpoint must have a host");
-            }
-        };
-
-        let mut request_builder = Request::builder().uri(&self.url);
-
-        for (k, v) in &self.headers {
-            request_builder = request_builder.header(k, v);
-        }
-
-        let request = match request_builder
-            .header("Host", host)
-            .header("Sec-WebSocket-Key", generate_key())
-            .header("Sec-WebSocket-Version", "13")
-            .header("Connection", "Upgrade")
-            .header("Upgrade", "websocket")
-            .body(())
-        {
-            Ok(request) => request,
-            Err(e) => {
-                ctx.report_error("Failed to build request".to_string(), format!("{:?}", e))
-                    .await;
-                panic!("Failed to build request: {:?}", e);
-            }
-        };
-
-        let ws_stream = match connect_async(request).await {
-            Ok((ws_stream, _)) => ws_stream,
-            Err(e) => {
-                ctx.report_error(
-                    "Failed to connect to websocket server".to_string(),
-                    e.to_string(),
-                )
-                .await;
-                panic!("{}", e);
-            }
-        };
-
-        let (mut tx, mut rx) = ws_stream.split();
-
-        for msg in &self.subscription_messages {
-            if let Err(e) = tx.send(tungstenite::Message::Text(msg.clone())).await {
-                ctx.report_error(
-                    "Failed to send subscription message to websocket server".to_string(),
-                    e.to_string(),
-                )
-                .await;
-                panic!(
-                    "Failed to send subscription message to websocket server: {:?}",
-                    e
-                );
-            }
-        }
-
-        let mut flush_ticker = tokio::time::interval(std::time::Duration::from_millis(50));
-        flush_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-        // since there's no way to partition across a websocket source, only read on the first task
-        if ctx.task_info.task_index == 0 {
-            loop {
-                select! {
-                    message = rx.next()  => {
-                        match message {
-                            Some(Ok(msg)) => {
-                                match msg {
-                                    tungstenite::Message::Text(t) => {
-                                        self.handle_message(t.as_bytes(), collector).await?
-                                    },
-                                    tungstenite::Message::Binary(bs) => {
-                                        self.handle_message(&bs, collector).await?
-                                    },
-                                    tungstenite::Message::Ping(d) => {
-                                        tx.send(tungstenite::Message::Pong(d)).await
-                                            .map(|_| ())
-                                            .map_err(|e| UserError::new("Failed to send pong to websocket server", e.to_string()))?
-                                    },
-                                    tungstenite::Message::Pong(_) => {
-                                        // ignore
-                                    },
-                                    tungstenite::Message::Close(_) => {
-                                        ctx.report_error("Received close frame from server".to_string(), "".to_string()).await;
-                                        panic!("Received close frame from server");
-                                    },
-                                    tungstenite::Message::Frame(_) => {
-                                        // this should be captured by tungstenite
-                                    },
-                                };
-                            }
-                        Some(Err(e)) => {
-                            ctx.report_error("Error while reading from websocket".to_string(), format!("{:?}", e)).await;
-                            panic!("Error while reading from websocket: {:?}", e);
-                        }
-                        None => {
-                            info!("Socket closed");
-                            return Ok(SourceFinishType::Final);
-                        }
-                    }
-                    }
-                    _ = flush_ticker.tick() => {
-                        if collector.should_flush() {
-                            collector.flush_buffer().await?;
-                        }
-                    }
-                    control_message = ctx.control_rx.recv() => {
-                        if let Some(r) = self.our_handle_control_message(ctx, collector, control_message).await {
-                            return Ok(r);
-                        }
-                    }
-                }
-            }
-        } else {
-            // otherwise set idle and just process control messages
-            collector
-                .broadcast(SignalMessage::Watermark(Watermark::Idle))
-                .await;
-            loop {
-                let msg = ctx.control_rx.recv().await;
-                if let Some(r) = self.our_handle_control_message(ctx, collector, msg).await {
-                    return Ok(r);
-                }
-            }
-        }
+        // This code is unreachable due to the early return above
+        // It's kept here as a reference for when WebSocket support is re-enabled
     }
 }

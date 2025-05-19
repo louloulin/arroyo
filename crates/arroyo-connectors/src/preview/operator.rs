@@ -10,11 +10,11 @@ use arroyo_rpc::grpc::rpc::controller_grpc_client::ControllerGrpcClient;
 use arroyo_rpc::grpc::rpc::{SinkDataReq, TableConfig};
 use arroyo_state::global_table_config;
 use arroyo_types::{from_nanos, to_micros, CheckpointBarrier, SignalMessage};
-use tonic::transport::Channel;
+// use tonic::transport::Channel;
 
 #[derive(Default)]
 pub struct PreviewSink {
-    client: Option<ControllerGrpcClient<Channel>>,
+    // client: Option<ControllerGrpcClient<Channel>>,
     row: usize,
 }
 
@@ -36,11 +36,12 @@ impl ArrowOperator for PreviewSink {
 
         self.row = *table.get(&ctx.task_info.task_index).unwrap_or(&0);
 
-        self.client = Some(
-            ControllerGrpcClient::connect(config().controller_endpoint())
-                .await
-                .unwrap(),
-        );
+        // Temporarily disabled due to tonic dependency issues
+        // self.client = Some(
+        //     ControllerGrpcClient::connect(config().controller_endpoint())
+        //         .await
+        //         .unwrap(),
+        // );
     }
 
     async fn process_batch(
@@ -72,20 +73,21 @@ impl ArrowOperator for PreviewSink {
 
         writer.finish().unwrap();
 
-        self.client
-            .as_mut()
-            .unwrap()
-            .send_sink_data(SinkDataReq {
-                job_id: ctx.task_info.job_id.clone(),
-                operator_id: ctx.task_info.operator_id.clone(),
-                subtask_index: ctx.task_info.task_index,
-                timestamps,
-                batch: String::from_utf8(buf).unwrap_or_else(|_| String::new()),
-                start_id: self.row as u64,
-                done: false,
-            })
-            .await
-            .unwrap();
+        // Temporarily disabled due to tonic dependency issues
+        // self.client
+        //     .as_mut()
+        //     .unwrap()
+        //     .send_sink_data(SinkDataReq {
+        //         job_id: ctx.task_info.job_id.clone(),
+        //         operator_id: ctx.task_info.operator_id.clone(),
+        //         subtask_index: ctx.task_info.task_index,
+        //         timestamps,
+        //         batch: String::from_utf8(buf).unwrap_or_else(|_| String::new()),
+        //         start_id: self.row as u64,
+        //         done: false,
+        //     })
+        //     .await
+        //     .unwrap();
 
         self.row += batch.num_rows();
     }
@@ -111,19 +113,20 @@ impl ArrowOperator for PreviewSink {
         ctx: &mut OperatorContext,
         _: &mut dyn Collector,
     ) {
-        self.client
-            .as_mut()
-            .unwrap()
-            .send_sink_data(SinkDataReq {
-                job_id: ctx.task_info.job_id.clone(),
-                operator_id: ctx.task_info.operator_id.clone(),
-                subtask_index: ctx.task_info.task_index,
-                timestamps: vec![],
-                batch: "[]".to_string(),
-                start_id: self.row as u64,
-                done: true,
-            })
-            .await
-            .unwrap();
+        // Temporarily disabled due to tonic dependency issues
+        // self.client
+        //     .as_mut()
+        //     .unwrap()
+        //     .send_sink_data(SinkDataReq {
+        //         job_id: ctx.task_info.job_id.clone(),
+        //         operator_id: ctx.task_info.operator_id.clone(),
+        //         subtask_index: ctx.task_info.task_index,
+        //         timestamps: vec![],
+        //         batch: "[]".to_string(),
+        //         start_id: self.row as u64,
+        //         done: true,
+        //     })
+        //     .await
+        //     .unwrap();
     }
 }

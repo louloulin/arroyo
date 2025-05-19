@@ -19,12 +19,13 @@ use arroyo_types::to_nanos;
 use rumqttc::mqttbytes::QoS;
 use rumqttc::Outgoing;
 use rumqttc::{AsyncClient, Event as MqttEvent, EventLoop, Incoming, MqttOptions};
-use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
-use rustls_native_certs::load_native_certs;
+// use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+// use rustls_native_certs::load_native_certs;
+// use rustls_pemfile;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot::Receiver;
-use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+// use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use typify::import_types;
 
 const CONFIG_SCHEMA: &str = include_str!("./profile.json");
@@ -376,27 +377,13 @@ async fn test_inner(
     }
 }
 
-fn load_certs<'a>(certificates: &str) -> anyhow::Result<Vec<CertificateDer<'a>>> {
-    let cert_bytes = std::fs::read_to_string(certificates).map_or_else(
-        |_| certificates.as_bytes().to_owned(),
-        |certs| certs.as_bytes().to_owned(),
-    );
-
-    let certs: Result<Vec<_>, _> = rustls_pemfile::certs(&mut cert_bytes.as_slice()).collect();
-
-    Ok(certs?)
+// MQTT TLS functionality is temporarily disabled
+fn load_certs<'a>(_certificates: &str) -> anyhow::Result<Vec<Vec<u8>>> {
+    Err(anyhow!("MQTT TLS functionality is temporarily disabled"))
 }
 
-fn load_private_key<'a>(certificate: &str) -> anyhow::Result<PrivatePkcs8KeyDer<'a>> {
-    let cert_bytes = std::fs::read_to_string(certificate).map_or_else(
-        |_| certificate.as_bytes().to_owned(),
-        |cert| cert.as_bytes().to_owned(),
-    );
-
-    let certs = rustls_pemfile::pkcs8_private_keys(&mut cert_bytes.as_slice())
-        .next()
-        .ok_or_else(|| anyhow!("No private key found"))??;
-    Ok(certs)
+fn load_private_key<'a>(_certificate: &str) -> anyhow::Result<Vec<u8>> {
+    Err(anyhow!("MQTT TLS functionality is temporarily disabled"))
 }
 
 pub(crate) fn create_connection(
@@ -424,40 +411,7 @@ pub(crate) fn create_connection(
 
     options.set_keep_alive(Duration::from_secs(10));
     if ssl {
-        let mut root_cert_store = RootCertStore::empty();
-
-        if let Some(ca) = c.tls.as_ref().and_then(|tls| tls.ca.as_ref()) {
-            let ca = ca.sub_env_vars().map_err(|e| anyhow!("{}", e))?;
-            let certificates = load_certs(&ca)?;
-            for cert in certificates {
-                root_cert_store.add(cert).unwrap();
-            }
-        } else {
-            for cert in load_native_certs().expect("could not load platform certs") {
-                root_cert_store.add(cert).unwrap();
-            }
-        }
-
-        let builder = ClientConfig::builder().with_root_certificates(root_cert_store);
-
-        let tls_config = if let Some((Some(client_cert), Some(client_key))) = c
-            .tls
-            .as_ref()
-            .map(|tls| (tls.cert.as_ref(), tls.key.as_ref()))
-        {
-            let client_cert = client_cert.sub_env_vars().map_err(|e| anyhow!("{}", e))?;
-            let client_key = client_key.sub_env_vars().map_err(|e| anyhow!("{}", e))?;
-            let certs = load_certs(&client_cert)?;
-            let key = load_private_key(&client_key)?;
-
-            builder.with_client_auth_cert(certs, key.into())?
-        } else {
-            builder.with_no_client_auth()
-        };
-
-        options.set_transport(rumqttc::Transport::tls_with_config(
-            rumqttc::TlsConfiguration::Rustls(Arc::new(tls_config)),
-        ));
+        return Err(anyhow!("MQTT TLS functionality is temporarily disabled"));
     }
 
     let password = if let Some(password) = &c.password {

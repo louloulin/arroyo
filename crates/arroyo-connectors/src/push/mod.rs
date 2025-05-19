@@ -30,6 +30,7 @@ pub mod management;
 pub mod messages;
 pub mod metrics;
 pub mod protocol;
+pub mod quic;
 pub mod retry;
 pub mod source;
 pub mod sql;
@@ -234,8 +235,8 @@ impl PushConnector {
     }
 
     /// Get the message validator
-    pub fn message_validator(&self) -> Arc<validator::MessageValidator> {
-        self.management_plane.message_validator()
+    pub fn message_validator(&self) -> Option<Arc<validator::MessageValidator>> {
+        Some(self.management_plane.message_validator())
     }
 
     /// Get the management plane
@@ -339,7 +340,7 @@ impl PushConnector {
         }
 
         // Check if topic exists
-        if let Err(_) = self.topic_manager.get_topic(topic) {
+        if let Err(_) = self.topic_manager().get_topic(topic) {
             return (
                 StatusCode::NOT_FOUND,
                 Json(serde_json::json!({
@@ -390,15 +391,19 @@ impl PushConnector {
         }
 
         // Store message in message store
-        if let Err(e) = self.message_store.store_message(&message.topic, message.data.clone()) {
-            tracing::error!("Failed to store message: {}", e);
-        } else {
-            tracing::debug!("Message stored in message store for topic {}", topic);
+        if let Some(store) = self.message_store() {
+            if let Err(e) = store.store_message(&message.topic, message.data.clone()) {
+                tracing::error!("Failed to store message: {}", e);
+            } else {
+                tracing::debug!("Message stored in message store for topic {}", topic);
+            }
         }
 
         // Update metrics
-        if let Err(e) = self.metrics_manager.record_message(topic, body.len()) {
-            tracing::error!("Failed to record message metrics: {}", e);
+        if let Some(metrics) = self.metrics_manager() {
+            if let Err(e) = metrics.record_message(topic, body.len()) {
+                tracing::error!("Failed to record message metrics: {}", e);
+            }
         }
 
         // Get elapsed time for response
@@ -426,7 +431,8 @@ impl PushConnector {
         let data = message.data.clone();
 
         // Store message in message store
-        let message_data = match self.message_store.store_message(&topic, data) {
+        let message_store = self.message_store().ok_or_else(|| anyhow::anyhow!("Message store not available"))?;
+        let message_data = match message_store.store_message(&topic, data) {
             Ok(data) => data,
             Err(e) => {
                 tracing::error!("Failed to store message: {}", e);
@@ -438,22 +444,26 @@ impl PushConnector {
         message.id = message_data.id;
 
         // Update metrics
-        if let Err(e) = self.metrics_manager.record_message(&topic, message_data.size) {
-            tracing::error!("Failed to record message metrics: {}", e);
+        if let Some(metrics) = self.metrics_manager() {
+            if let Err(e) = metrics.record_message(&topic, message_data.size) {
+                tracing::error!("Failed to record message metrics: {}", e);
+            }
         }
 
         // Validate message
-        if let Err(e) = self.message_validator.validate(&topic, &message.data) {
-            tracing::warn!("Message validation failed: {}", e);
-            // Mark message as failed
-            if let Err(e) = self.message_store.mark_message_failed(&topic, message_data.id, e.to_string()) {
-                tracing::error!("Failed to mark message as failed: {}", e);
+        if let Some(validator) = self.message_validator() {
+            if let Err(e) = validator.validate(&topic, &message.data) {
+                tracing::warn!("Message validation failed: {}", e);
+                // Mark message as failed
+                if let Err(e) = message_store.mark_message_failed(&topic, message_data.id, e.to_string()) {
+                    tracing::error!("Failed to mark message as failed: {}", e);
+                }
+                return Err(anyhow::anyhow!("Message validation failed"));
             }
-            return Err(anyhow::anyhow!("Message validation failed"));
         }
 
         // Mark message as processing
-        if let Err(e) = self.message_store.mark_message_processing(&topic, message_data.id) {
+        if let Err(e) = message_store.mark_message_processing(&topic, message_data.id) {
             tracing::error!("Failed to mark message as processing: {}", e);
         }
 
@@ -462,7 +472,7 @@ impl PushConnector {
             match tx.send(message.clone()).await {
                 Ok(_) => {
                     // Mark message as processed
-                    if let Err(e) = self.message_store.mark_message_processed(&topic, message_data.id) {
+                    if let Err(e) = message_store.mark_message_processed(&topic, message_data.id) {
                         tracing::error!("Failed to mark message as processed: {}", e);
                     }
                     return Ok(());
@@ -480,7 +490,7 @@ impl PushConnector {
                     Ok(_) => {
                         tracing::debug!("Message for topic {} sent to streaming pipeline via global registry", topic);
                         // Mark message as processed
-                        if let Err(e) = self.message_store.mark_message_processed(&topic, message_data.id) {
+                        if let Err(e) = message_store.mark_message_processed(&topic, message_data.id) {
                             tracing::error!("Failed to mark message as processed: {}", e);
                         }
                         return Ok(());
@@ -496,7 +506,7 @@ impl PushConnector {
         tracing::warn!("Message sender not set, message for topic {} will not be processed by streaming pipeline", topic);
 
         // Mark message as failed
-        if let Err(e) = self.message_store.mark_message_failed(&topic, message_data.id, "No message sender available".to_string()) {
+        if let Err(e) = message_store.mark_message_failed(&topic, message_data.id, "No message sender available".to_string()) {
             tracing::error!("Failed to mark message as failed: {}", e);
         }
 
