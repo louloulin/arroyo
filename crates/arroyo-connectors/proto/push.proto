@@ -1,0 +1,267 @@
+syntax = "proto3";
+
+package arroyo.push;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// Push service for receiving data from external systems
+service PushService {
+  // Push a message to a topic
+  rpc PushMessage(PushRequest) returns (PushResponse);
+  
+  // Push multiple messages to a topic
+  rpc PushMessages(PushBatchRequest) returns (PushBatchResponse);
+  
+  // Get information about a topic
+  rpc GetTopic(GetTopicRequest) returns (TopicInfo);
+  
+  // List all topics
+  rpc ListTopics(ListTopicsRequest) returns (ListTopicsResponse);
+  
+  // Create a new topic
+  rpc CreateTopic(CreateTopicRequest) returns (TopicInfo);
+  
+  // Delete a topic
+  rpc DeleteTopic(DeleteTopicRequest) returns (google.protobuf.Empty);
+  
+  // Subscribe to a topic for receiving messages
+  rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse);
+  
+  // Get health status
+  rpc HealthCheck(google.protobuf.Empty) returns (HealthStatus);
+}
+
+// Push request message
+message PushRequest {
+  // Topic name
+  string topic = 1;
+  
+  // Message data
+  bytes data = 2;
+  
+  // Message timestamp (optional)
+  google.protobuf.Timestamp timestamp = 3;
+  
+  // Message headers (optional)
+  map<string, string> headers = 4;
+}
+
+// Push response message
+message PushResponse {
+  // Success flag
+  bool success = 1;
+  
+  // Message ID (if successful)
+  string message_id = 2;
+  
+  // Error message (if not successful)
+  string error = 3;
+  
+  // Server timestamp
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// Push batch request message
+message PushBatchRequest {
+  // Topic name
+  string topic = 1;
+  
+  // Messages
+  repeated BatchMessage messages = 2;
+}
+
+// Batch message
+message BatchMessage {
+  // Message data
+  bytes data = 1;
+  
+  // Message timestamp (optional)
+  google.protobuf.Timestamp timestamp = 2;
+  
+  // Message headers (optional)
+  map<string, string> headers = 3;
+}
+
+// Push batch response message
+message PushBatchResponse {
+  // Success flag
+  bool success = 1;
+  
+  // Number of messages processed
+  int32 processed_count = 2;
+  
+  // Number of messages failed
+  int32 failed_count = 3;
+  
+  // Error message (if not successful)
+  string error = 4;
+  
+  // Server timestamp
+  google.protobuf.Timestamp timestamp = 5;
+  
+  // Individual message results
+  repeated MessageResult results = 6;
+}
+
+// Message result
+message MessageResult {
+  // Success flag
+  bool success = 1;
+  
+  // Message ID (if successful)
+  string message_id = 2;
+  
+  // Error message (if not successful)
+  string error = 3;
+}
+
+// Get topic request
+message GetTopicRequest {
+  // Topic name
+  string topic = 1;
+}
+
+// List topics request
+message ListTopicsRequest {
+  // Pagination offset
+  int32 offset = 1;
+  
+  // Pagination limit
+  int32 limit = 2;
+}
+
+// List topics response
+message ListTopicsResponse {
+  // Topics
+  repeated TopicInfo topics = 1;
+  
+  // Total count
+  int32 total_count = 2;
+}
+
+// Create topic request
+message CreateTopicRequest {
+  // Topic name
+  string topic = 1;
+  
+  // Retention period in seconds (optional)
+  int64 retention_period = 2;
+  
+  // Compression flag (optional)
+  bool compression = 3;
+  
+  // Partitions count (optional)
+  int32 partitions = 4;
+  
+  // Replication factor (optional)
+  int32 replication_factor = 5;
+}
+
+// Delete topic request
+message DeleteTopicRequest {
+  // Topic name
+  string topic = 1;
+}
+
+// Topic information
+message TopicInfo {
+  // Topic name
+  string topic = 1;
+  
+  // Retention period in seconds
+  int64 retention_period = 2;
+  
+  // Compression flag
+  bool compression = 3;
+  
+  // Partitions count
+  int32 partitions = 4;
+  
+  // Replication factor
+  int32 replication_factor = 5;
+  
+  // Creation timestamp
+  google.protobuf.Timestamp created_at = 6;
+  
+  // Message count
+  int64 message_count = 7;
+  
+  // Size in bytes
+  int64 size_bytes = 8;
+}
+
+// Subscribe request
+message SubscribeRequest {
+  // Topic name
+  string topic = 1;
+  
+  // Consumer group (optional)
+  string consumer_group = 2;
+  
+  // Consumer ID (optional)
+  string consumer_id = 3;
+  
+  // Start position (optional)
+  StartPosition start_position = 4;
+  
+  // Max batch size (optional)
+  int32 max_batch_size = 5;
+  
+  // Max wait time in milliseconds (optional)
+  int32 max_wait_ms = 6;
+}
+
+// Start position
+enum StartPosition {
+  // Start from the beginning
+  EARLIEST = 0;
+  
+  // Start from the end
+  LATEST = 1;
+  
+  // Start from a specific timestamp
+  TIMESTAMP = 2;
+}
+
+// Subscribe response
+message SubscribeResponse {
+  // Messages
+  repeated SubscribeMessage messages = 1;
+  
+  // Error message (if any)
+  string error = 2;
+}
+
+// Subscribe message
+message SubscribeMessage {
+  // Message ID
+  string message_id = 1;
+  
+  // Topic name
+  string topic = 2;
+  
+  // Message data
+  bytes data = 3;
+  
+  // Message timestamp
+  google.protobuf.Timestamp timestamp = 4;
+  
+  // Message headers
+  map<string, string> headers = 5;
+}
+
+// Health status
+message HealthStatus {
+  // Status
+  string status = 1;
+  
+  // Version
+  string version = 2;
+  
+  // Topics count
+  int32 topics_count = 3;
+  
+  // Uptime in seconds
+  int64 uptime = 4;
+}

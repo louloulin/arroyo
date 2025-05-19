@@ -1,5 +1,8 @@
 #[cfg(test)]
 mod tests {
+    // Protocol tests
+    #[path = "tests/protocol_tests.rs"]
+    mod protocol_tests;
     use crate::push::{PushConnector, PushConfig, PushTable, PushConnectorConfig};
     use arroyo_operator::connector::Connector;
     use arroyo_rpc::api_types::connections::ConnectionType;

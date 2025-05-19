@@ -22,8 +22,10 @@ pub mod buffer;
 pub mod converter;
 pub mod dataplane;
 pub mod discovery;
+pub mod grpc;
 pub mod http;
 pub mod http2;
+pub mod http2_server;
 pub mod management;
 pub mod messages;
 pub mod metrics;
@@ -33,9 +35,13 @@ pub mod source;
 pub mod sql;
 pub mod topic;
 pub mod validator;
+pub mod websocket;
 
 #[cfg(test)]
 mod topic_tests;
+
+#[cfg(test)]
+mod tests;
 
 #[cfg(test)]
 mod metrics_tests;

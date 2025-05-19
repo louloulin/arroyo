@@ -27,22 +27,29 @@ impl ProtocolAdapterFactory {
                 config,
             ))),
             ProtocolType::Http2 => {
-                #[cfg(feature = "http2")]
-                {
-                    use crate::push::http2::Http2Adapter;
-                    Ok(Box::new(Http2Adapter::new(
-                        message_tx,
-                        management_plane,
-                        config,
-                    )))
-                }
-                #[cfg(not(feature = "http2"))]
-                {
-                    Err(anyhow!("HTTP/2 protocol support is not enabled. Enable the 'http2' feature to use it."))
-                }
+                use crate::push::http2::Http2Adapter;
+                Ok(Box::new(Http2Adapter::new(
+                    message_tx,
+                    management_plane,
+                    config,
+                )))
             },
-            ProtocolType::WebSocket => Err(anyhow!("WebSocket protocol not implemented yet")),
-            ProtocolType::Grpc => Err(anyhow!("gRPC protocol not implemented yet")),
+            ProtocolType::WebSocket => {
+                use crate::push::websocket::WebSocketAdapter;
+                Ok(Box::new(WebSocketAdapter::new(
+                    message_tx,
+                    management_plane,
+                    config,
+                )))
+            },
+            ProtocolType::Grpc => {
+                use crate::push::grpc::GrpcAdapter;
+                Ok(Box::new(GrpcAdapter::new(
+                    message_tx,
+                    management_plane,
+                    config,
+                )))
+            },
             ProtocolType::Quic => Err(anyhow!("QUIC protocol not implemented yet")),
         }
     }
