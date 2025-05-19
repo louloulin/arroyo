@@ -20,9 +20,14 @@ pub mod backpressure;
 pub mod batch;
 pub mod buffer;
 pub mod converter;
+pub mod dataplane;
+pub mod discovery;
 pub mod http;
+pub mod http2;
+pub mod management;
 pub mod messages;
 pub mod metrics;
+pub mod protocol;
 pub mod retry;
 pub mod source;
 pub mod sql;
@@ -119,13 +124,23 @@ impl Default for PushConnectorConfig {
 }
 
 /// Push connector for receiving data pushed from external systems
+/// Uses a hybrid architecture with management plane integrated into API service
+/// and data plane as a separate service
 pub struct PushConnector {
-    topic_manager: Arc<topic::TopicManager>,
-    metrics_manager: Arc<metrics::TopicMetricsManager>,
-    message_store: Arc<messages::MessageStore>,
-    message_validator: Arc<validator::MessageValidator>,
-    message_tx: Option<mpsc::Sender<source::PushMessage>>,
+    /// Management plane for topic management, health checks, etc.
+    management_plane: Arc<management::PushManagementPlane>,
+
+    /// Data plane for receiving and processing data
+    data_plane: Option<dataplane::PushDataPlane>,
+
+    /// Service registry for data plane services
+    service_registry: Arc<discovery::PushServiceRegistry>,
+
+    /// Configuration
     config: PushConnectorConfig,
+
+    /// Message sender
+    message_tx: Option<mpsc::Sender<source::PushMessage>>,
 }
 
 impl PushConnector {
@@ -136,51 +151,105 @@ impl PushConnector {
 
     /// Create a new Push Connector with custom configuration
     pub fn with_config(config: PushConnectorConfig) -> Self {
-        let topic_manager = Arc::new(topic::TopicManager::new());
-        let metrics_manager = Arc::new(metrics::TopicMetricsManager::new());
-        let message_store = Arc::new(messages::MessageStore::new(1000)); // Store up to 1000 messages per topic
-        let message_validator = Arc::new(validator::MessageValidator::new(
-            config.max_message_size,
-            100, // max_field_count
-            256, // max_field_name_length
-            10 * 1024, // max_field_value_length (10 KB)
-        ));
+        // Create management plane
+        let management_plane = Arc::new(management::PushManagementPlane::with_config(config.clone()));
+
+        // Create service registry
+        let service_registry = Arc::new(discovery::PushServiceRegistry::new());
 
         // Create connector instance
         let connector = Self {
-            topic_manager,
-            metrics_manager,
-            message_store: message_store.clone(),
-            message_validator,
-            message_tx: None,
+            management_plane,
+            data_plane: None,
+            service_registry,
             config: config.clone(),
+            message_tx: None,
         };
 
-        // We'll initialize the retry manager in a separate function
-        // to avoid the Send issue with RwLockReadGuard
-        Self::init_retry_manager(message_store);
+        // Initialize retry manager
+        Self::init_retry_manager(connector.management_plane.message_store());
 
         connector
     }
 
+    /// Initialize the data plane
+    pub fn init_data_plane(&mut self) -> Result<()> {
+        // Create data plane
+        let mut data_plane = dataplane::PushDataPlane::with_config(
+            self.management_plane.clone(),
+            self.config.clone(),
+        );
+
+        // Enable HTTP protocol by default
+        data_plane.enable_protocol(dataplane::ProtocolType::Http)?;
+
+        // Store data plane
+        self.data_plane = Some(data_plane);
+
+        Ok(())
+    }
+
+    /// Start the data plane
+    pub async fn start_data_plane(&mut self) -> Result<()> {
+        if let Some(data_plane) = &mut self.data_plane {
+            data_plane.start().await?;
+        } else {
+            self.init_data_plane()?;
+            if let Some(data_plane) = &mut self.data_plane {
+                data_plane.start().await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Stop the data plane
+    pub async fn stop_data_plane(&mut self) -> Result<()> {
+        if let Some(data_plane) = &mut self.data_plane {
+            data_plane.stop().await?;
+        }
+
+        Ok(())
+    }
+
     /// Get the topic manager
     pub fn topic_manager(&self) -> Arc<topic::TopicManager> {
-        self.topic_manager.clone()
+        self.management_plane.topic_manager()
     }
 
     /// Get the metrics manager
     pub fn metrics_manager(&self) -> Option<Arc<metrics::TopicMetricsManager>> {
-        Some(self.metrics_manager.clone())
+        Some(self.management_plane.metrics_manager())
     }
 
     /// Get the message store
     pub fn message_store(&self) -> Option<Arc<messages::MessageStore>> {
-        Some(self.message_store.clone())
+        Some(self.management_plane.message_store())
     }
 
     /// Get the message validator
     pub fn message_validator(&self) -> Arc<validator::MessageValidator> {
-        self.message_validator.clone()
+        self.management_plane.message_validator()
+    }
+
+    /// Get the management plane
+    pub fn management_plane(&self) -> Arc<management::PushManagementPlane> {
+        self.management_plane.clone()
+    }
+
+    /// Get the service registry
+    pub fn service_registry(&self) -> Arc<discovery::PushServiceRegistry> {
+        self.service_registry.clone()
+    }
+
+    /// Get the data plane
+    pub fn data_plane(&self) -> Option<&dataplane::PushDataPlane> {
+        self.data_plane.as_ref()
+    }
+
+    /// Get mutable reference to the data plane
+    pub fn data_plane_mut(&mut self) -> Option<&mut dataplane::PushDataPlane> {
+        self.data_plane.as_mut()
     }
 
     /// Initialize retry manager

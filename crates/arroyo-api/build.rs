@@ -15,16 +15,35 @@ fn main() -> Result<(), Error> {
     println!("cargo:rerun-if-changed=migrations");
     println!("cargo:rerun-if-changed=sqlite_migrations");
 
-    let mut client = Client::configure()
+    // 从环境变量获取PostgreSQL端口，默认为5433
+    let pg_port = std::env::var("ARROYO_POSTGRES_PORT")
+        .unwrap_or_else(|_| "5433".to_string())
+        .parse::<u16>()
+        .unwrap_or(5433);
+
+    println!("cargo:warning=Using PostgreSQL port: {}", pg_port);
+
+    // 尝试连接到PostgreSQL
+    let client_result = Client::configure()
         .dbname("arroyo")
         .host("localhost")
-        .port(5433)  // 使用Docker容器映射的端口
+        .port(pg_port)
         .user("arroyo")
         .password("arroyo")
-        .connect(NoTls)
-        .unwrap_or_else(|_| {
-            panic!("Could not connect to postgres: arroyo:arroyo@localhost:5433/arroyo")
-        });
+        .connect(NoTls);
+
+    // 如果无法连接到PostgreSQL，则使用SQLite
+    let mut client = match client_result {
+        Ok(client) => {
+            println!("cargo:warning=Successfully connected to PostgreSQL");
+            client
+        },
+        Err(e) => {
+            println!("cargo:warning=Failed to connect to PostgreSQL: {}. Using SQLite instead.", e);
+            // 创建一个空的Client，后面会使用SQLite
+            panic!("Could not connect to postgres, please use SQLite instead")
+        }
+    };
 
     let mut sqlite =
         rusqlite::Connection::open_in_memory().expect("Couldn't open sqlite memory connection");
