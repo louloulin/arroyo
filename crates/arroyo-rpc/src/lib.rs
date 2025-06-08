@@ -497,6 +497,21 @@ impl ConnectorOptions {
         }
     }
 
+    /// Get an optional string value without removing it from the options
+    pub fn get_opt_str(&self, name: &str) -> DFResult<Option<String>> {
+        match self.options.get(name) {
+            Some(Expr::Value(SqlValue::SingleQuotedString(s))) => Ok(Some(s.clone())),
+            Some(e) => {
+                plan_err!(
+                    "expected with option '{}' to be a single-quoted string, but it was `{:?}`",
+                    name,
+                    e
+                )
+            }
+            None => Ok(None),
+        }
+    }
+
     pub fn pull_str(&mut self, name: &str) -> DFResult<String> {
         self.pull_opt_str(name)?
             .ok_or_else(|| plan_datafusion_err!("required option '{}' not set", name))

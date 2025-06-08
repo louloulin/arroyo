@@ -126,30 +126,46 @@ fn parse_websocket_options(options: &mut ConnectorOptions) -> Result<(), anyhow:
 }
 
 /// Validate protocol options
-pub fn validate_protocol_options(options: &mut ConnectorOptions) -> Result<(), anyhow::Error> {
+pub fn validate_protocol_options(options: &ConnectorOptions) -> Result<(), anyhow::Error> {
     // Get protocol without removing it
-    let protocol_clone = options.pull_opt_str("protocol")
+    let protocol = options.get_opt_str("protocol")
         .map_err(|e| anyhow::anyhow!("{}", e))?
         .unwrap_or_else(|| "http".to_string());
 
-    // Re-insert the protocol option since we removed it
-    let _ = options.insert_str("protocol", &protocol_clone);
-
     // Check if topic exists, but don't remove it
-    let has_topic = options.contains_key("topic");
-    if !has_topic {
-        return Err(anyhow::anyhow!("Missing required option: topic. Please specify a topic name using WITH (topic = 'your_topic_name')"));
+    let topic = options.get_opt_str("topic")
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    if topic.is_none() {
+        return Err(anyhow::anyhow!(
+            "Missing required option: topic. Please specify a topic name using WITH (topic = 'your_topic_name')"
+        ));
+    }
+
+    // Validate topic name format
+    if let Some(topic_name) = &topic {
+        if topic_name.trim().is_empty() {
+            return Err(anyhow::anyhow!("Topic name cannot be empty"));
+        }
+
+        // Check for valid topic name characters (alphanumeric, underscore, hyphen)
+        if !topic_name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+            return Err(anyhow::anyhow!(
+                "Topic name '{}' contains invalid characters. Only alphanumeric characters, underscores, and hyphens are allowed",
+                topic_name
+            ));
+        }
     }
 
     // Validate protocol-specific options
-    match protocol_clone.as_str() {
+    match protocol.as_str() {
         "http" | "quic" | "grpc" | "websocket" => {
-            // No additional validation needed
+            // No additional validation needed for now
         }
         _ => {
             return Err(anyhow::anyhow!(
                 "Unsupported protocol: {}. Supported protocols are: http, quic, grpc, websocket",
-                protocol_clone
+                protocol
             ));
         }
     }

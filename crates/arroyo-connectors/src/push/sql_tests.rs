@@ -120,10 +120,10 @@ mod tests {
             },
         ];
 
-        let mut options = ConnectorOptions::try_from(&sql_options).unwrap();
+        let options = ConnectorOptions::try_from(&sql_options).unwrap();
 
-        // Validate options
-        assert!(sql::validate_protocol_options(&mut options).is_ok());
+        // Validate options (now takes immutable reference)
+        assert!(sql::validate_protocol_options(&options).is_ok());
 
         // Check that topic is still present after validation
         assert!(options.contains_key("topic"), "Topic should still be present after validation");
@@ -142,10 +142,10 @@ mod tests {
             },
         ];
 
-        let mut invalid_options = ConnectorOptions::try_from(&invalid_sql_options).unwrap();
+        let invalid_options = ConnectorOptions::try_from(&invalid_sql_options).unwrap();
 
-        // Validate options
-        let err = sql::validate_protocol_options(&mut invalid_options);
+        // Validate options (now takes immutable reference)
+        let err = sql::validate_protocol_options(&invalid_options);
         assert!(err.is_err());
         let err_msg = err.unwrap_err().to_string();
         assert!(err_msg.contains("Missing required option: topic"),
@@ -171,10 +171,10 @@ mod tests {
             },
         ];
 
-        let mut invalid_protocol = ConnectorOptions::try_from(&invalid_protocol_sql_options).unwrap();
+        let invalid_protocol = ConnectorOptions::try_from(&invalid_protocol_sql_options).unwrap();
 
-        // Validate options
-        let err = sql::validate_protocol_options(&mut invalid_protocol);
+        // Validate options (now takes immutable reference)
+        let err = sql::validate_protocol_options(&invalid_protocol);
         assert!(err.is_err());
         let err_msg = err.unwrap_err().to_string();
         assert!(err_msg.contains("Unsupported protocol"),
@@ -217,8 +217,8 @@ mod tests {
         // Parse protocol options
         sql::parse_protocol_options(&mut options)?;
 
-        // Validate options
-        sql::validate_protocol_options(&mut options)?;
+        // Validate options (now takes immutable reference)
+        sql::validate_protocol_options(&options)?;
 
         // Check that topic is still present after both operations
         assert!(options.contains_key("topic"), "Topic should still be present after validation");
