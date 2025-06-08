@@ -56,7 +56,10 @@ pub async fn handle_push(
         return (
             status,
             Json(serde_json::json!({
-                "error": message
+                "error": message,
+                "error_code": "VALIDATION_FAILED",
+                "topic": topic,
+                "timestamp": SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
             })),
         ).into_response();
         }
