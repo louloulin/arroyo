@@ -14,6 +14,7 @@ mod tests {
 
         // Create message
         let message = PushMessage {
+            id: 1,
             topic: "test-topic".to_string(),
             data: vec![1, 2, 3, 4],
             timestamp: SystemTime::now(),
@@ -38,6 +39,7 @@ mod tests {
 
         // Create message larger than buffer
         let message = PushMessage {
+            id: 2,
             topic: "test-topic".to_string(),
             data: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
             timestamp: SystemTime::now(),
@@ -55,6 +57,7 @@ mod tests {
 
         // Create message larger than buffer
         let message = PushMessage {
+            id: 3,
             topic: "test-topic".to_string(),
             data: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
             timestamp: SystemTime::now(),
@@ -84,6 +87,7 @@ mod tests {
 
         // Create message
         let message = PushMessage {
+            id: 4,
             topic: "test-topic".to_string(),
             data: vec![1, 2, 3, 4],
             timestamp: SystemTime::now(),
@@ -132,6 +136,7 @@ mod tests {
 
         // Try to push message
         let message = PushMessage {
+            id: 5,
             topic: "test-topic".to_string(),
             data: vec![1, 2, 3, 4],
             timestamp: SystemTime::now(),

@@ -14,16 +14,19 @@ mod tests {
 
         // Create messages
         let message1 = PushMessage {
+            id: 1,
             topic: "test-topic".to_string(),
             data: vec![1, 2, 3],
             timestamp: SystemTime::now(),
         };
         let message2 = PushMessage {
+            id: 2,
             topic: "test-topic".to_string(),
             data: vec![4, 5, 6],
             timestamp: SystemTime::now(),
         };
         let message3 = PushMessage {
+            id: 3,
             topic: "test-topic".to_string(),
             data: vec![7, 8, 9],
             timestamp: SystemTime::now(),
@@ -54,11 +57,13 @@ mod tests {
 
         // Create messages
         let message1 = PushMessage {
+            id: 4,
             topic: "test-topic".to_string(),
             data: vec![1, 2, 3],
             timestamp: SystemTime::now(),
         };
         let message2 = PushMessage {
+            id: 5,
             topic: "test-topic".to_string(),
             data: vec![4, 5, 6],
             timestamp: SystemTime::now(),
@@ -90,6 +95,7 @@ mod tests {
 
         // Create message
         let message = PushMessage {
+            id: 6,
             topic: "test-topic".to_string(),
             data: vec![1, 2, 3],
             timestamp: SystemTime::now(),
@@ -115,16 +121,19 @@ mod tests {
 
         // Create messages for different topics
         let message1 = PushMessage {
+            id: 7,
             topic: "topic1".to_string(),
             data: vec![1, 2, 3],
             timestamp: SystemTime::now(),
         };
         let message2 = PushMessage {
+            id: 8,
             topic: "topic2".to_string(),
             data: vec![4, 5, 6],
             timestamp: SystemTime::now(),
         };
         let message3 = PushMessage {
+            id: 9,
             topic: "topic1".to_string(),
             data: vec![7, 8, 9],
             timestamp: SystemTime::now(),
@@ -158,11 +167,13 @@ mod tests {
 
         // Create messages
         let message1 = PushMessage {
+            id: 10,
             topic: "topic1".to_string(),
             data: vec![1, 2, 3],
             timestamp: SystemTime::now(),
         };
         let message2 = PushMessage {
+            id: 11,
             topic: "topic2".to_string(),
             data: vec![4, 5, 6],
             timestamp: SystemTime::now(),

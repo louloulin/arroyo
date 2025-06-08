@@ -209,6 +209,7 @@ mod tests {
 
         // Create message
         let message = PushMessage {
+            id: 1,
             topic: "test-topic".to_string(),
             data: r#"{"id":"123","value":42}"#.as_bytes().to_vec(),
             timestamp: SystemTime::now(),

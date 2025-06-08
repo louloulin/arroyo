@@ -93,9 +93,9 @@ mod tests {
         // Verify metrics
         assert_eq!(metrics.len(), 2);
 
-        // Find metrics for each topic
-        let metrics1 = metrics.iter().find(|m| m.name == "topic1").unwrap();
-        let metrics2 = metrics.iter().find(|m| m.name == "topic2").unwrap();
+        // Get metrics for each topic
+        let metrics1 = metrics.get("topic1").unwrap();
+        let metrics2 = metrics.get("topic2").unwrap();
 
         // Verify metrics for topic1
         assert_eq!(metrics1.total_messages, 1);

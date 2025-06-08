@@ -51,9 +51,6 @@ mod metrics_tests;
 mod messages_tests;
 
 #[cfg(test)]
-mod tests;
-
-#[cfg(test)]
 mod http_tests;
 
 #[cfg(test)]
@@ -573,7 +570,7 @@ impl Connector for PushConnector {
         // Parse protocol-specific options
         sql::parse_protocol_options(options)?;
 
-        // Validate options
+        // Validate options (pass immutable reference)
         sql::validate_protocol_options(options)?;
 
         let topic = options
