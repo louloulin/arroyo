@@ -82,13 +82,42 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const [isValidated, setIsValidated] = useState(false);
 
+  const handleValidate = () => {
     // 验证表单
     const validation = validatePushTableConfig(state.table);
     if (!validation.valid) {
       addValidationError('Please fix the following errors:', validation.errors);
+      setIsValidated(false);
+      return;
+    }
+
+    clearError();
+    setIsValidated(true);
+    toast({
+      title: 'Configuration validated',
+      description: 'Your push connection configuration is valid.',
+      status: 'success',
+      duration: 3000,
+      isClosable: true,
+    });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // 如果还没有验证，先验证
+    if (!isValidated) {
+      handleValidate();
+      return;
+    }
+
+    // 再次验证表单以确保数据仍然有效
+    const validation = validatePushTableConfig(state.table);
+    if (!validation.valid) {
+      addValidationError('Please fix the following errors:', validation.errors);
+      setIsValidated(false);
       return;
     }
 
@@ -213,9 +242,26 @@ export const PushConnectionForm: React.FC<PushConnectionFormProps> = ({
 
         {/* 其他协议的配置选项可以在这里添加 */}
 
-        <Button type="submit" colorScheme="blue">
-          Continue
-        </Button>
+        <Stack direction="row" spacing={4} justify="flex-end">
+          <Button
+            colorScheme="blue"
+            variant="outline"
+            onClick={handleValidate}
+            isDisabled={!state.table?.topic?.trim()}
+          >
+            Validate
+          </Button>
+
+          {isValidated && (
+            <Button
+              type="submit"
+              colorScheme="blue"
+              onClick={handleSubmit}
+            >
+              Continue
+            </Button>
+          )}
+        </Stack>
       </Stack>
     </Box>
   );
