@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
+use base64::prelude::*;
 use reqwest::{Client, header};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -298,9 +299,51 @@ impl PushClient {
     
     /// Push batch of data to a topic
     pub async fn push_batch(&self, topic: &str, batch: Vec<Vec<u8>>, metadata: Option<HashMap<String, String>>) -> Result<BatchPushResponse, PushClientError> {
-        // TODO: Implement batch push
-        Err(PushClientError::ProtocolError(
-            "Batch push not implemented yet".to_string(),
-        ))
+        match self.config.protocol {
+            TransportProtocol::Http => {
+                self.push_batch_http(topic, batch, metadata).await
+            }
+            _ => {
+                Err(PushClientError::ProtocolError(
+                    "Batch push only supported for HTTP protocol currently".to_string(),
+                ))
+            }
+        }
+    }
+
+    /// Push batch of data using HTTP protocol
+    async fn push_batch_http(&self, topic: &str, batch: Vec<Vec<u8>>, _metadata: Option<HashMap<String, String>>) -> Result<BatchPushResponse, PushClientError> {
+        let client = self.http_client.as_ref()
+            .ok_or_else(|| PushClientError::ConfigurationError("HTTP client not initialized".to_string()))?;
+
+        let url = format!("{}/api/v1/push/{}/batch", self.config.base_url, topic);
+
+        // Convert batch to JSON array
+        let batch_json: Vec<serde_json::Value> = batch.into_iter()
+            .map(|data| {
+                // Try to parse as JSON, otherwise treat as raw bytes
+                match serde_json::from_slice::<serde_json::Value>(&data) {
+                    Ok(json) => json,
+                    Err(_) => serde_json::Value::String(base64::prelude::BASE64_STANDARD.encode(&data)),
+                }
+            })
+            .collect();
+
+        let response = client.post(&url)
+            .json(&batch_json)
+            .send()
+            .await?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(PushClientError::ServerError {
+                status: status.as_u16(),
+                message: error_text,
+            });
+        }
+
+        let batch_response = response.json::<BatchPushResponse>().await?;
+        Ok(batch_response)
     }
 }
